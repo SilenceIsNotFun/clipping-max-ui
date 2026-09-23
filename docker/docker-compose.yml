@@ -1,0 +1,48 @@
+services:
+  web-ui:
+    build: ../apps/web-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - API_BASE_URL=http://api:4000
+    depends_on:
+      - api
+
+  api:
+    build: ../apps/api
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - UPLOAD_DIR=/app/uploads
+      - DATA_DIR=/app/data
+      - DB_PATH=/app/data/app.db
+      - EXPORT_DIR=/app/data/exports
+      - AI_WORKER_URL=http://ai-worker:8000
+    volumes:
+      - uploads:/app/uploads
+      - data:/app/data
+    depends_on:
+      - ai-worker
+
+  ai-worker:
+    build: ../apps/ai-worker
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=mistral:7b-instruct
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  uploads:
+  data:
+  ollama:
