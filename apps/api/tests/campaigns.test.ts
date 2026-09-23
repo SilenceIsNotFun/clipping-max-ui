@@ -31,6 +31,7 @@ describe("campaign routes", () => {
     process.env.DATA_DIR = dataDir;
     process.env.DB_PATH = path.join(dataDir, "app.db");
     process.env.AI_WORKER_URL = "http://ai-worker:8000";
+    process.env.EXPORT_DIR = path.join(dataDir, "exports");
     jest.clearAllMocks();
   });
 
@@ -86,5 +87,23 @@ describe("campaign routes", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("needs_review");
+  });
+
+  it("generates and downloads a PDF for a planned campaign", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "sample.pdf");
+    const created = await request(app)
+      .post("/api/campaigns")
+      .field("title", "PDF Test Campaign")
+      .field("content_format", "video")
+      .field("target_language", "id")
+      .field("deadline", "2026-10-01")
+      .field("reward", "500k")
+      .field("constraints", "none")
+      .attach("file", fixture);
+
+    const pdfRes = await request(app).get(`/api/campaigns/${created.body.id}/pdf`);
+    expect(pdfRes.status).toBe(200);
+    expect(pdfRes.headers["content-type"]).toBe("application/pdf");
   });
 });

@@ -5,6 +5,7 @@ import express, { Router } from "express";
 import multer from "multer";
 import { getDb } from "../db";
 import { parseDocument, planCampaign } from "../services/aiWorkerClient";
+import { renderPlanPdf } from "../services/pdfExport";
 
 function docTypeFromMime(mime: string): "pdf" | "docx" | "image" | null {
   if (mime === "application/pdf") return "pdf";
@@ -102,6 +103,45 @@ export function createCampaignsRouter(): Router {
     await runParseAndPlan(campaign.id, campaign.source_file_path, docType, req.body, aiWorkerUrl, dbPath);
     const updated = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(campaign.id);
     res.json(updated);
+  });
+
+  router.get("/:id/pdf", async (req, res) => {
+    const db = getDb(dbPath);
+    const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(req.params.id) as any;
+    if (!campaign) {
+      res.status(404).json({ error: "campaign not found" });
+      return;
+    }
+    const plan = db
+      .prepare("SELECT * FROM plans WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(req.params.id) as any;
+    if (!plan) {
+      res.status(404).json({ error: "no plan available for this campaign" });
+      return;
+    }
+    const exportDir = process.env.EXPORT_DIR ?? "/app/data/exports";
+    fs.mkdirSync(exportDir, { recursive: true });
+    const outputPath = plan.pdf_path ?? path.join(exportDir, `${plan.id}.pdf`);
+
+    if (!fs.existsSync(outputPath)) {
+      const document = db
+        .prepare("SELECT * FROM brd_documents WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 1")
+        .get(req.params.id) as any;
+      await renderPlanPdf(
+        {
+          campaignTitle: campaign.title,
+          strategySummary: plan.strategy_summary,
+          requirementsChecklist: JSON.parse(plan.requirements_checklist),
+          contentPlan: JSON.parse(plan.content_plan),
+          opportunityScore: plan.opportunity_score,
+          exampleLinks: document ? JSON.parse(document.extracted_links) : [],
+        },
+        outputPath
+      );
+      db.prepare("UPDATE plans SET pdf_path = ? WHERE id = ?").run(outputPath, plan.id);
+    }
+
+    res.download(outputPath, `${campaign.title.replace(/\s+/g, "_")}.pdf`);
   });
 
   return router;
