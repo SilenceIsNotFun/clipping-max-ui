@@ -1,4 +1,5 @@
 import express from "express";
+import { createCampaignsRouter } from "./routes/campaigns";
 
 export function createApp() {
   const app = express();
@@ -7,6 +8,8 @@ export function createApp() {
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  app.use("/api/campaigns", createCampaignsRouter());
 
   return app;
 }
