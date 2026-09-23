@@ -32,6 +32,8 @@ services:
     environment:
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=mistral:7b-instruct
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       - ollama
 
