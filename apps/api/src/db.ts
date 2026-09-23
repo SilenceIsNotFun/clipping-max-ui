@@ -41,12 +41,16 @@ CREATE TABLE IF NOT EXISTS review_tasks (
 );
 `;
 
+// NOTE: intentionally caches by first call only, ignoring subsequent dbPath args — fine since
+// each process only ever opens one database path in practice; resetDbCacheForTests() exists for
+// tests that need a fresh path.
 let cached: Database.Database | null = null;
 
 export function getDb(dbPath: string): Database.Database {
   if (cached) return cached;
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
   cached = db;
   return db;

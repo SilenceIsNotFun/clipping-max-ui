@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.next/
+__pycache__/
+*.pyc
+.venv/
+next-env.d.ts

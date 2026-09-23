@@ -89,6 +89,58 @@ describe("campaign routes", () => {
     expect(res.body.status).toBe("needs_review");
   });
 
+  it("sends Access-Control-Allow-Origin so the browser can call the api cross-origin", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .get("/api/health")
+      .set("Origin", "http://localhost:3000");
+    expect(res.status).toBe(200);
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
+  it("returns 400 (not a crash) when title is missing, and cleans up the temp upload", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "sample.pdf");
+
+    const filesBefore = fs.readdirSync(uploadDir).length;
+    const res = await request(app)
+      .post("/api/campaigns")
+      .field("content_format", "video")
+      .attach("file", fixture);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/i);
+    // the app must still be alive after this request (no crashed process)
+    const health = await request(app).get("/api/health");
+    expect(health.status).toBe(200);
+    // no orphaned temp file left behind
+    expect(fs.readdirSync(uploadDir).length).toBe(filesBefore);
+  });
+
+  it("includes open review_tasks with their reason on GET /:id for a needs_review campaign", async () => {
+    const { planCampaign } = require("../src/services/aiWorkerClient");
+    (planCampaign as jest.Mock).mockRejectedValueOnce(new Error("ai-worker /plan failed with status 502"));
+
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "sample.pdf");
+    const created = await request(app)
+      .post("/api/campaigns")
+      .field("title", "Needs Review Campaign")
+      .field("content_format", "video")
+      .field("target_language", "id")
+      .field("deadline", "2026-10-01")
+      .field("reward", "500k")
+      .field("constraints", "none")
+      .attach("file", fixture);
+
+    expect(created.body.status).toBe("needs_review");
+
+    const detailRes = await request(app).get(`/api/campaigns/${created.body.id}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.review_tasks).toHaveLength(1);
+    expect(detailRes.body.review_tasks[0].reason).toBe("ai-worker /plan failed with status 502");
+  });
+
   it("generates and downloads a PDF for a planned campaign", async () => {
     const app = createApp();
     const fixture = path.join(__dirname, "fixtures", "sample.pdf");

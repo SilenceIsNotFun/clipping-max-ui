@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import express, { Router } from "express";
 import multer from "multer";
+import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
 import { parseDocument, planCampaign } from "../services/aiWorkerClient";
 import { renderPlanPdf } from "../services/pdfExport";
@@ -22,9 +23,9 @@ export function createCampaignsRouter(): Router {
   const aiWorkerUrl = process.env.AI_WORKER_URL ?? "http://ai-worker:8000";
   fs.mkdirSync(uploadDir, { recursive: true });
 
-  const upload = multer({ dest: uploadDir });
+  const upload = multer({ dest: uploadDir, limits: { fileSize: 50 * 1024 * 1024 } });
 
-  router.post("/", upload.single("file"), async (req, res) => {
+  router.post("/", upload.single("file"), asyncHandler(async (req, res) => {
     const db = getDb(dbPath);
     const file = req.file;
     if (!file) {
@@ -33,7 +34,13 @@ export function createCampaignsRouter(): Router {
     }
     const docType = docTypeFromMime(file.mimetype);
     if (!docType) {
+      fs.unlinkSync(file.path);
       res.status(400).json({ error: `unsupported file type: ${file.mimetype}` });
+      return;
+    }
+    if (!req.body.title || !String(req.body.title).trim()) {
+      fs.unlinkSync(file.path);
+      res.status(400).json({ error: "title is required" });
       return;
     }
 
@@ -51,7 +58,7 @@ export function createCampaignsRouter(): Router {
 
     const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id);
     res.status(201).json(campaign);
-  });
+  }));
 
   router.get("/", (_req, res) => {
     const db = getDb(dbPath);
@@ -74,6 +81,11 @@ export function createCampaignsRouter(): Router {
     const plan = db
       .prepare("SELECT * FROM plans WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 1")
       .get(req.params.id) as any;
+    const reviewTasks = db
+      .prepare(
+        "SELECT * FROM review_tasks WHERE campaign_id = ? AND status = 'open' ORDER BY created_at DESC"
+      )
+      .all(req.params.id);
     res.json({
       ...campaign,
       document: document
@@ -86,10 +98,11 @@ export function createCampaignsRouter(): Router {
             content_plan: JSON.parse(plan.content_plan),
           }
         : null,
+      review_tasks: reviewTasks,
     });
   });
 
-  router.post("/:id/retry", async (req, res) => {
+  router.post("/:id/retry", asyncHandler(async (req, res) => {
     const db = getDb(dbPath);
     const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(req.params.id) as
       | { id: string; source_file_path: string }
@@ -103,9 +116,9 @@ export function createCampaignsRouter(): Router {
     await runParseAndPlan(campaign.id, campaign.source_file_path, docType, req.body, aiWorkerUrl, dbPath);
     const updated = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(campaign.id);
     res.json(updated);
-  });
+  }));
 
-  router.get("/:id/pdf", async (req, res) => {
+  router.get("/:id/pdf", asyncHandler(async (req, res) => {
     const db = getDb(dbPath);
     const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(req.params.id) as any;
     if (!campaign) {
@@ -142,7 +155,7 @@ export function createCampaignsRouter(): Router {
     }
 
     res.download(outputPath, `${campaign.title.replace(/\s+/g, "_")}.pdf`);
-  });
+  }));
 
   return router;
 }

@@ -19,6 +19,7 @@ export interface CampaignDetail extends Campaign {
     content_plan: Record<string, unknown>;
     opportunity_score: number;
   } | null;
+  review_tasks: { id: string; reason: string; status: string; created_at: string }[];
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";

@@ -9,7 +9,10 @@ export function CampaignDetail({ campaign }: { campaign: CampaignDetailType }) {
       <p>Status: {campaign.status}</p>
 
       {campaign.status === "needs_review" && (
-        <p role="alert">This campaign needs manual review.</p>
+        <p role="alert">
+          This campaign needs manual review.
+          {campaign.review_tasks.length > 0 && ` Reason: ${campaign.review_tasks[0].reason}`}
+        </p>
       )}
 
       {campaign.document && (
