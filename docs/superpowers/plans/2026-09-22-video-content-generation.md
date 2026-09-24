@@ -3618,7 +3618,7 @@ PY
 echo "Submitting render..."
 RENDER_RESPONSE=$(curl -sf -X POST "$API_URL/api/campaigns/$CAMPAIGN_ID/render" \
   -H "Content-Type: application/json" \
-  -d '{"tts_voice": "id_ID-voice-medium"}')
+  -d '{"tts_voice": "id_ID-news_tts-medium"}')
 JOB_ID=$(echo "$RENDER_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin)['job_id'])")
 echo "Job: $JOB_ID"
 
@@ -3653,10 +3653,26 @@ Run:
 docker compose -f docker/docker-compose.yml up --build -d
 sleep 5
 docker exec $(docker compose -f docker/docker-compose.yml ps -q ollama) ollama pull mistral:7b-instruct
+
+# Provision a real Piper voice model. No task in this plan ever downloads an
+# actual .onnx voice file into the piper-voices volume -- without this, the
+# render pipeline's TTS step fails with "model file not found" on every run.
+# id_ID-news_tts-medium is a real voice from the official rhasspy/piper-voices
+# repository (confirmed present in that repo's voices.json); downloaded here
+# via the video-worker container's own Python (no curl needed in the image).
+docker exec $(docker compose -f docker/docker-compose.yml ps -q video-worker) python -c "
+import os
+import urllib.request
+os.makedirs('/app/voices', exist_ok=True)
+base = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx'
+urllib.request.urlretrieve(base, '/app/voices/id_ID-news_tts-medium.onnx')
+urllib.request.urlretrieve(base + '.json', '/app/voices/id_ID-news_tts-medium.onnx.json')
+"
+
 ./tests/e2e_video.test.sh
 docker compose -f docker/docker-compose.yml down
 ```
-Expected: script prints `PASS`. If `analysis_status` is `failed` or `JOB_STATUS` is `failed`, inspect `docker compose -f docker/docker-compose.yml logs video-worker` for the ffmpeg/Piper/whisper error before treating this as a real regression — Piper voice models and whisper's model download both need to be present/reachable in the container for a first run.
+Expected: script prints `PASS`. If `analysis_status` is `failed` or `JOB_STATUS` is `failed`, inspect `docker compose -f docker/docker-compose.yml logs video-worker` for the ffmpeg/Piper/whisper error before treating this as a real regression — whisper's own model download also needs to be reachable in the container for a first run (faster-whisper downloads its "small" model on first use).
 
 - [ ] **Step 4: Commit**
 
