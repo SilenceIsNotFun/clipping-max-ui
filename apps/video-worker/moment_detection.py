@@ -1,5 +1,7 @@
+import os
 import re
 import subprocess
+import tempfile
 
 import numpy as np
 import soundfile as sf
@@ -15,7 +17,29 @@ SCENE_SCORE_RE = re.compile(r"lavfi\.scene_score=([\d.]+)")
 
 
 def detect_audio_peaks(audio_path: str) -> list[MomentCandidate]:
-    data, sample_rate = sf.read(audio_path)
+    # NOTE: discovered while wiring this into the /analyze route (Task 3),
+    # which calls this on the same file passed to detect_scene_changes --
+    # i.e. a real video container (mp4/AAC), not a bare WAV. `soundfile`
+    # wraps libsndfile, which has no MP4/AAC decoder at all (confirmed via
+    # `sf.available_formats()` on libsndfile 1.2.0: WAV/FLAC/OGG/etc only,
+    # no MP4), so `sf.read(audio_path)` unconditionally raised
+    # `LibsndfileError: Format not recognised` for any video input. Route
+    # the input through ffmpeg first to extract/convert to a mono WAV --
+    # this is a no-op for a WAV fixture (still passes the existing
+    # `short_clip_with_peak.wav` test) and makes real video containers work.
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav_path = tmp.name
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", audio_path, "-vn", "-ac", "1", wav_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        data, sample_rate = sf.read(wav_path)
+    finally:
+        os.remove(wav_path)
+
     if data.ndim > 1:
         data = data.mean(axis=1)
 
