@@ -45,13 +45,21 @@ def detect_audio_peaks(audio_path: str) -> list[MomentCandidate]:
 
 
 def detect_scene_changes(video_path: str) -> list[MomentCandidate]:
+    # NOTE: an earlier version of this function used the `showinfo` filter
+    # and expected `pts_time` and `lavfi.scene_score` on the same stderr
+    # line. Verified against real ffmpeg (7.1.5): `showinfo` never prints
+    # `lavfi.scene_score` at all, so that version silently always returned
+    # an empty list. `metadata=print` is the filter that actually exposes
+    # the score, and it prints `pts_time` on one line and
+    # `lavfi.scene_score=...` on the NEXT line -- paired here by order, not
+    # by co-occurrence on one line.
     result = subprocess.run(
         [
             "ffmpeg",
             "-i",
             video_path,
             "-vf",
-            f"select='gt(scene,{SCENE_THRESHOLD})',showinfo",
+            f"select='gt(scene,{SCENE_THRESHOLD})',metadata=print",
             "-f",
             "null",
             "-",
@@ -60,18 +68,20 @@ def detect_scene_changes(video_path: str) -> list[MomentCandidate]:
         text=True,
     )
     candidates = []
+    pending_pts_ms: int | None = None
     for line in result.stderr.splitlines():
-        if "pts_time" not in line or "lavfi.scene_score" not in line:
-            continue
         pts_match = SHOWINFO_RE.search(line)
-        score_match = SCENE_SCORE_RE.search(line)
-        if not pts_match or not score_match:
+        if pts_match:
+            pending_pts_ms = int(float(pts_match.group(1)) * 1000)
             continue
-        candidates.append(
-            MomentCandidate(
-                timestamp_ms=int(float(pts_match.group(1)) * 1000),
-                score=min(float(score_match.group(1)), 1.0),
-                detection_type="scene_change",
+        score_match = SCENE_SCORE_RE.search(line)
+        if score_match and pending_pts_ms is not None:
+            candidates.append(
+                MomentCandidate(
+                    timestamp_ms=pending_pts_ms,
+                    score=min(float(score_match.group(1)), 1.0),
+                    detection_type="scene_change",
+                )
             )
-        )
+            pending_pts_ms = None
     return candidates

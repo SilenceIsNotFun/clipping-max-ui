@@ -20,8 +20,19 @@ def test_detect_audio_peaks_finds_the_loud_window():
 
 
 def test_detect_scene_changes_returns_list_for_short_clip():
+    # short_clip.mp4 (Task 1's fixture) is a static two-color frame held for
+    # its whole duration -- nothing ever changes, so it can never trigger a
+    # scene-change detection. Confirm that case returns an empty list rather
+    # than erroring.
     candidates = detect_scene_changes(os.path.join(FIXTURES, "short_clip.mp4"))
-    assert isinstance(candidates, list)
-    for c in candidates:
-        assert c.detection_type == "scene_change"
-        assert 0.0 <= c.score <= 1.0
+    assert candidates == []
+
+
+def test_detect_scene_changes_finds_the_real_cut():
+    candidates = detect_scene_changes(os.path.join(FIXTURES, "cut_clip.mp4"))
+    assert len(candidates) >= 1
+    top = candidates[0]
+    assert top.detection_type == "scene_change"
+    assert 0.0 <= top.score <= 1.0
+    # The cut happens at the 1-second boundary between the two 1s clips.
+    assert 800 <= top.timestamp_ms <= 1200
