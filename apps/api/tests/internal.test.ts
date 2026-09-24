@@ -14,6 +14,9 @@ describe("internal analysis-complete callback", () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "data-"));
     dbPath = path.join(dataDir, "app.db");
     process.env.DB_PATH = dbPath;
+    process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-"));
+    process.env.DATA_DIR = dataDir;
+    process.env.VIDEO_ASSETS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "video-assets-"));
 
     const db = getDb(dbPath);
     const now = new Date().toISOString();
@@ -54,5 +57,59 @@ describe("internal analysis-complete callback", () => {
     const db = getDb(dbPath);
     const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(assetId) as any;
     expect(asset.analysis_status).toBe("failed");
+  });
+});
+
+describe("internal render-complete callback", () => {
+  let dbPath: string;
+
+  beforeEach(() => {
+    resetDbCacheForTests();
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "data-"));
+    dbPath = path.join(dataDir, "app.db");
+    process.env.DB_PATH = dbPath;
+    process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-"));
+    process.env.DATA_DIR = dataDir;
+    process.env.VIDEO_ASSETS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "video-assets-"));
+
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO campaigns (id, title, status, source_file_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("campaign-1", "Test", "planned", "/x.pdf", now, now);
+    db.prepare(
+      `INSERT INTO render_jobs (id, campaign_id, status, tts_voice, music_asset_id, output_path, error_message, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("job-1", "campaign-1", "rendering", "id_ID-voice-medium", null, null, null, now, now);
+  });
+
+  it("marks job ready_for_preview and stores caption_words on success", async () => {
+    const app = createApp();
+    const res = await request(app).post("/api/internal/render/job-1/complete").send({
+      job_id: "job-1",
+      output_path: "/video-assets/exports/job-1.mp4",
+      caption_words: [{ word: "hi", start_ms: 0, end_ms: 300 }],
+    });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const job = db.prepare("SELECT * FROM render_jobs WHERE id = ?").get("job-1") as any;
+    expect(job.status).toBe("ready_for_preview");
+    expect(job.output_path).toBe("/video-assets/exports/job-1.mp4");
+    const words = db.prepare("SELECT * FROM caption_words WHERE render_job_id = ?").all("job-1");
+    expect(words).toHaveLength(1);
+  });
+
+  it("marks job failed with error_message on failure", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post("/api/internal/render/job-1/complete")
+      .send({ job_id: "job-1", error: "ffmpeg exploded" });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const job = db.prepare("SELECT * FROM render_jobs WHERE id = ?").get("job-1") as any;
+    expect(job.status).toBe("failed");
+    expect(job.error_message).toBe("ffmpeg exploded");
   });
 });
