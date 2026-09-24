@@ -21,12 +21,26 @@ services:
       - DB_PATH=/app/data/app.db
       - EXPORT_DIR=/app/data/exports
       - AI_WORKER_URL=http://ai-worker:8000
+      - VIDEO_ASSETS_DIR=/app/video-assets
+      - VIDEO_WORKER_URL=http://video-worker:8100
     volumes:
       - uploads:/app/uploads
       - data:/app/data
+      - video-assets:/app/video-assets
     depends_on:
       - ai-worker
     restart: unless-stopped
+
+  video-worker:
+    build: ../apps/video-worker
+    ports:
+      - "8100:8100"
+    environment:
+      - API_INTERNAL_CALLBACK_URL=http://api:4000/api/internal
+      - PIPER_VOICES_DIR=/app/voices
+    volumes:
+      - video-assets:/app/video-assets
+      - piper-voices:/app/voices
 
   ai-worker:
     build: ../apps/ai-worker
@@ -51,3 +65,5 @@ volumes:
   uploads:
   data:
   ollama:
+  video-assets:
+  piper-voices:
