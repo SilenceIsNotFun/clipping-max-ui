@@ -36,3 +36,31 @@ class SegmentInput(BaseModel):
     crop_facecam_rect: Optional[CropRect] = None
     has_secondary: bool = False
     title_text: Optional[str] = None
+
+
+class RenderSegmentInput(BaseModel):
+    file_path: str
+    secondary_file_path: Optional[str] = None
+    trim_start: float
+    trim_end: float
+    order_index: int
+    script_text: str
+    layout_template: Literal[
+        "standard", "gameplay_facecam_split", "gameplay_full_focus", "cinematic_letterbox"
+    ]
+    crop_gameplay_rect: Optional[CropRect] = None
+    crop_facecam_rect: Optional[CropRect] = None
+    title_text: Optional[str] = None
+
+
+class RenderJobInput(BaseModel):
+    segments: list[RenderSegmentInput]
+    tts_voice: str
+    voices_dir: str
+    music_path: Optional[str] = None
+    output_path: str
+
+
+class RenderResult(BaseModel):
+    output_path: str
+    caption_words: list[CaptionWord]
