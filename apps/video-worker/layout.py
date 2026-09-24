@@ -12,10 +12,14 @@ def _crop_expr(rect: CropRect) -> str:
 
 
 def _title_filter(title_text: str) -> str:
-    escaped = title_text.replace("'", "\\'").replace(":", "\\:")
+    escaped = (
+        title_text.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("'", "'\\''")
+    )
     return (
-        f"drawtext=text='{escaped}':fontcolor=white:fontsize=64:"
-        "borderw=3:bordercolor=black:x=(w-text_w)/2:y=80"
+        f"drawtext=text='{escaped}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        "fontcolor=white:fontsize=64:borderw=3:bordercolor=black:x=(w-text_w)/2:y=80"
     )
 
 

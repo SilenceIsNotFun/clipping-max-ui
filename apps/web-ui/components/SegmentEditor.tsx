@@ -12,6 +12,12 @@ import {
 import { TimelineScrubber } from "./TimelineScrubber";
 import { CropCanvas } from "./CropCanvas";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+
+function mediaUrl(filePath: string): string {
+  return `${API_BASE_URL}/media${filePath.replace("/app/video-assets", "")}`;
+}
+
 const TEMPLATES: LayoutTemplate[] = [
   "standard",
   "gameplay_facecam_split",
@@ -77,7 +83,7 @@ export function SegmentEditor({
 
       {asset && (
         <TimelineScrubber
-          src={`/media/${asset.file_path}`}
+          src={mediaUrl(asset.file_path)}
           durationSeconds={asset.duration_seconds}
           moments={moments}
           trimStart={draft.trim_start}
@@ -88,14 +94,14 @@ export function SegmentEditor({
 
       {needsGameplayCrop && asset && (
         <CropCanvas
-          imageSrc={`/media/${asset.file_path}`}
+          imageSrc={mediaUrl(asset.file_path)}
           label="Gameplay area"
           onChange={(rect: CropRect) => onChange({ ...draft, crop_gameplay_rect: rect })}
         />
       )}
       {needsFacecamCrop && asset && (
         <CropCanvas
-          imageSrc={`/media/${asset.file_path}`}
+          imageSrc={mediaUrl(asset.file_path)}
           label="Facecam area"
           onChange={(rect: CropRect) => onChange({ ...draft, crop_facecam_rect: rect })}
         />

@@ -73,6 +73,24 @@ describe("render routes", () => {
     expect(statusRes.body.status).toBe("rendering");
   });
 
+  it("marks the job failed and still responds when submitRender rejects", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    (submitRender as jest.Mock).mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({ tts_voice: "id_ID-voice-medium" });
+
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe("failed");
+
+    const db = getDb(dbPath);
+    const job = db.prepare("SELECT * FROM render_jobs WHERE id = ?").get(res.body.job_id) as any;
+    expect(job.status).toBe("failed");
+    expect(job.error_message).toBe("video-worker unreachable");
+  });
+
   it("finalizes a ready render job", async () => {
     const app = createApp();
     const db = getDb(dbPath);

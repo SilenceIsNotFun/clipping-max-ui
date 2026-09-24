@@ -18,6 +18,9 @@ export function CropCanvas({
 
   function relativePos(e: React.MouseEvent): { x: number; y: number } {
     const bounds = containerRef.current!.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) {
+      return { x: 0, y: 0 };
+    }
     return {
       x: (e.clientX - bounds.left) / bounds.width,
       y: (e.clientY - bounds.top) / bounds.height,
@@ -31,11 +34,12 @@ export function CropCanvas({
   function handleMouseUp(e: React.MouseEvent) {
     if (!start) return;
     const end = relativePos(e);
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
     const newRect: CropRect = {
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      width: Math.abs(end.x - start.x),
-      height: Math.abs(end.y - start.y),
+      x: clamp(Math.min(start.x, end.x)),
+      y: clamp(Math.min(start.y, end.y)),
+      width: clamp(Math.abs(end.x - start.x)),
+      height: clamp(Math.abs(end.y - start.y)),
     };
     setRect(newRect);
     onChange(newRect);
@@ -51,7 +55,16 @@ export function CropCanvas({
         onMouseUp={handleMouseUp}
         style={{ position: "relative", width: "100%", cursor: "crosshair" }}
       >
-        <img src={imageSrc} alt={label} style={{ width: "100%", display: "block" }} />
+        <video
+          src={imageSrc}
+          muted
+          playsInline
+          style={{ width: "100%", display: "block" }}
+          onLoadedMetadata={(e) => {
+            // ensure a frame is visible for drawing reference
+            (e.target as HTMLVideoElement).currentTime = 0.1;
+          }}
+        />
         {rect && (
           <div
             style={{

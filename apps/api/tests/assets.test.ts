@@ -60,6 +60,26 @@ describe("asset routes", () => {
     expect(res.body).toHaveLength(1);
   });
 
+  it("still creates the asset (marked failed) when analyzeAsset rejects", async () => {
+    const { analyzeAsset } = require("../src/services/videoWorkerClient");
+    (analyzeAsset as jest.Mock).mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    expect(res.status).toBe(201);
+    expect(res.body.asset_type).toBe("footage");
+
+    const getRes = await request(app).get(`/api/campaigns/${campaignId}/assets`);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body[0].analysis_status).toBe("failed");
+  });
+
   it("rejects upload with unreadable/zero-duration file", async () => {
     const app = createApp();
     const badFile = path.join(os.tmpdir(), "bad.mp4");

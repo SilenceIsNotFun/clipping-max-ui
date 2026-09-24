@@ -17,6 +17,20 @@ interface SegmentPayload {
 
 const TEMPLATES_REQUIRING_GAMEPLAY_CROP = new Set(["gameplay_full_focus", "gameplay_facecam_split"]);
 const TEMPLATES_REQUIRING_FACECAM_CROP = new Set(["gameplay_facecam_split"]);
+const VALID_LAYOUT_TEMPLATES = new Set([
+  "standard",
+  "gameplay_facecam_split",
+  "gameplay_full_focus",
+  "cinematic_letterbox",
+]);
+
+function isValidCropRect(rect: unknown): boolean {
+  if (!rect || typeof rect !== "object") return false;
+  const r = rect as Record<string, unknown>;
+  return (["x", "y", "width", "height"] as const).every(
+    (k) => typeof r[k] === "number" && (r[k] as number) >= 0 && (r[k] as number) <= 1
+  );
+}
 
 export function createSegmentsRouter(): Router {
   const router = express.Router({ mergeParams: true });
@@ -52,6 +66,38 @@ export function createSegmentsRouter(): Router {
       .map((s) => s.segment_key);
     if (missingCrop.length > 0) {
       res.status(400).json({ missing_crop: missingCrop });
+      return;
+    }
+
+    const invalidSegments = segments
+      .filter((s) => {
+        if (s.trim_end <= s.trim_start) return true;
+        if (!s.video_asset_id) return true;
+        if (!VALID_LAYOUT_TEMPLATES.has(s.layout_template)) return true;
+        if (s.crop_gameplay_rect && !isValidCropRect(s.crop_gameplay_rect)) return true;
+        if (s.crop_facecam_rect && !isValidCropRect(s.crop_facecam_rect)) return true;
+        return false;
+      })
+      .map((s) => s.segment_key);
+    if (invalidSegments.length > 0) {
+      res.status(400).json({ invalid_segments: invalidSegments });
+      return;
+    }
+
+    const validAssetIds = new Set(
+      (db.prepare("SELECT id FROM video_assets WHERE campaign_id = ?").all(campaignId) as { id: string }[]).map(
+        (r) => r.id
+      )
+    );
+    const unknownAssetSegments = segments
+      .filter(
+        (s) =>
+          !validAssetIds.has(s.video_asset_id) ||
+          (s.secondary_video_asset_id && !validAssetIds.has(s.secondary_video_asset_id))
+      )
+      .map((s) => s.segment_key);
+    if (unknownAssetSegments.length > 0) {
+      res.status(400).json({ unknown_asset_segments: unknownAssetSegments });
       return;
     }
 

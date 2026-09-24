@@ -34,7 +34,10 @@ export function RenderPreview({ campaignId, job }: { campaignId: string; job: Re
     <div>
       <video src={`${API_BASE_URL}/media${job.output_path?.replace("/app/video-assets", "")}`} controls />
       <p>Status: {job.status}</p>
-      <input value={voice} onChange={(e) => setVoice(e.target.value)} placeholder="TTS voice" />
+      <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+        <option value="id_ID-news_tts-medium">Indonesian (news, medium)</option>
+        <option value="en_US-lessac-medium">English US (lessac, medium)</option>
+      </select>
       <button type="button" onClick={handleReRender}>
         Re-render with new voice
       </button>

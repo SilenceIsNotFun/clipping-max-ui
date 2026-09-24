@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import express, { Router } from "express";
+import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
 import { submitRender, RenderSegmentPayload } from "../services/videoWorkerClient";
 
@@ -9,7 +10,7 @@ export function createRenderRouter(): Router {
   const videoWorkerUrl = process.env.VIDEO_WORKER_URL ?? "http://video-worker:8100";
   const callbackBase = process.env.API_INTERNAL_CALLBACK_URL ?? "http://api:4000/api/internal";
 
-  router.post("/", async (req, res) => {
+  router.post("/", asyncHandler(async (req, res) => {
     const db = getDb(dbPath);
     const campaignId = (req.params as { id: string }).id;
 
@@ -34,7 +35,7 @@ export function createRenderRouter(): Router {
     const jobId = randomUUID();
     const now = new Date().toISOString();
     const musicAssetId: string | null = req.body.music_asset_id ?? null;
-    const ttsVoice: string = req.body.tts_voice ?? "id_ID-voice-medium";
+    const ttsVoice: string = req.body.tts_voice ?? "id_ID-news_tts-medium";
 
     db.prepare(
       `INSERT INTO render_jobs (id, campaign_id, status, tts_voice, music_asset_id, output_path, error_message, created_at, updated_at)
@@ -56,17 +57,28 @@ export function createRenderRouter(): Router {
 
     const musicPath = musicAssetId ? assetPathById.get(musicAssetId) ?? null : null;
 
-    await submitRender(
-      videoWorkerUrl,
-      jobId,
-      segmentPayloads,
-      ttsVoice,
-      musicPath,
-      `${callbackBase}/render/${jobId}/complete`
-    );
+    try {
+      await submitRender(
+        videoWorkerUrl,
+        jobId,
+        segmentPayloads,
+        ttsVoice,
+        musicPath,
+        `${callbackBase}/render/${jobId}/complete`
+      );
+    } catch (err) {
+      db.prepare("UPDATE render_jobs SET status = ?, error_message = ?, updated_at = ? WHERE id = ?").run(
+        "failed",
+        "video-worker unreachable",
+        new Date().toISOString(),
+        jobId
+      );
+      res.status(202).json({ job_id: jobId, status: "failed" });
+      return;
+    }
 
     res.status(202).json({ job_id: jobId, status: "queued" });
-  });
+  }));
 
   router.get("/:jobId", (req, res) => {
     const db = getDb(dbPath);

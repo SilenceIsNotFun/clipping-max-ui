@@ -106,4 +106,34 @@ describe("segment assignment route", () => {
     expect(res.status).toBe(400);
     expect(res.body.missing_crop).toEqual(["hook"]);
   });
+
+  it("rejects a segment where trim_end <= trim_start", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          { segment_key: "hook", video_asset_id: assetId, trim_start: 2, trim_end: 2, order_index: 0, layout_template: "standard" },
+          { segment_key: "body", video_asset_id: assetId, trim_start: 2, trim_end: 4, order_index: 1, layout_template: "standard" },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.invalid_segments).toEqual(["hook"]);
+  });
+
+  it("rejects a segment referencing a video_asset_id that doesn't exist", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          { segment_key: "hook", video_asset_id: "nonexistent-asset", trim_start: 0, trim_end: 2, order_index: 0, layout_template: "standard" },
+          { segment_key: "body", video_asset_id: assetId, trim_start: 2, trim_end: 4, order_index: 1, layout_template: "standard" },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.unknown_asset_segments).toEqual(["hook"]);
+  });
 });

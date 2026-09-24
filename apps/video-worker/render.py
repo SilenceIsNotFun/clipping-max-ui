@@ -7,6 +7,20 @@ from schemas import CaptionWord, RenderJobInput, RenderResult, SegmentInput
 from tts import generate_tts
 
 
+def _write_srt(caption_words: list[CaptionWord], srt_path: str) -> None:
+    def format_ts(ms: int) -> str:
+        hours, ms = divmod(ms, 3_600_000)
+        minutes, ms = divmod(ms, 60_000)
+        seconds, millis = divmod(ms, 1_000)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
+
+    with open(srt_path, "w", encoding="utf-8") as f:
+        for i, word in enumerate(caption_words, start=1):
+            f.write(f"{i}\n")
+            f.write(f"{format_ts(word.start_ms)} --> {format_ts(word.end_ms)}\n")
+            f.write(f"{word.word}\n\n")
+
+
 def _render_single_segment(
     segment, index: int, tts_voice: str, voices_dir: str, work_dir: str
 ) -> tuple[str, str]:
@@ -85,13 +99,17 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
                     end_ms=word.end_ms + offset_ms,
                 )
             )
-        offset_ms += int(probe_duration(video_path) * 1000)
+        offset_ms += int(probe_duration(tts_path) * 1000)
 
     concat_video = os.path.join(work_dir, "concatenated_video.mp4")
     _concat_video_only(video_paths, concat_video)
 
     concat_voiceover = os.path.join(work_dir, "concatenated_voiceover.wav")
     _concat_audio_only(tts_paths, concat_voiceover)
+
+    srt_path = os.path.join(work_dir, "captions.srt")
+    _write_srt(all_caption_words, srt_path)
+    escaped_srt_path = srt_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
     final_output = job.output_path
     if job.music_path:
@@ -103,12 +121,15 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
                 concat_video,
                 "-i",
                 concat_voiceover,
+                "-stream_loop",
+                "-1",
                 "-i",
                 job.music_path,
                 "-filter_complex",
+                f"[0:v]subtitles='{escaped_srt_path}'[v];"
                 "[2:a]volume=0.2[music];[1:a][music]amix=inputs=2:duration=first[a]",
                 "-map",
-                "0:v",
+                "[v]",
                 "-map",
                 "[a]",
                 "-shortest",
@@ -124,8 +145,10 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
                 concat_video,
                 "-i",
                 concat_voiceover,
+                "-filter_complex",
+                f"[0:v]subtitles='{escaped_srt_path}'[v]",
                 "-map",
-                "0:v",
+                "[v]",
                 "-map",
                 "1:a",
                 "-shortest",

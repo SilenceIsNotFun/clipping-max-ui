@@ -4,6 +4,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import express, { Router } from "express";
 import multer from "multer";
+import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
 import { analyzeAsset } from "../services/videoWorkerClient";
 
@@ -35,7 +36,7 @@ export function createAssetsRouter(): Router {
 
   const upload = multer({ dest: videoAssetsDir });
 
-  router.post("/", upload.single("file"), async (req, res) => {
+  router.post("/", upload.single("file"), asyncHandler(async (req, res) => {
     const db = getDb(dbPath);
     const file = req.file;
     const campaignId = req.params.id;
@@ -62,12 +63,16 @@ export function createAssetsRouter(): Router {
     ).run(id, campaignId, finalPath, assetType, duration, assetType === "footage" ? "pending" : "done", now);
 
     if (assetType === "footage") {
-      await analyzeAsset(videoWorkerUrl, id, finalPath, `${callbackBase}/assets/${id}/analysis-complete`);
+      try {
+        await analyzeAsset(videoWorkerUrl, id, finalPath, `${callbackBase}/assets/${id}/analysis-complete`);
+      } catch (err) {
+        db.prepare("UPDATE video_assets SET analysis_status = ? WHERE id = ?").run("failed", id);
+      }
     }
 
     const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(id);
     res.status(201).json(asset);
-  });
+  }));
 
   router.get("/", (req, res) => {
     const db = getDb(dbPath);

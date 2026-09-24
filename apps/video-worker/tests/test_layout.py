@@ -59,6 +59,17 @@ def test_no_title_text_omits_drawtext_filter():
     assert "drawtext" not in result
 
 
+def test_title_text_with_apostrophe_is_escaped_safely():
+    segment = SegmentInput(layout_template="standard", title_text="Ryan's clutch")
+    result = build_segment_filter(segment)
+    assert "Ryan" in result
+    assert "clutch" in result
+    # must use the close-quote/escaped-quote/reopen-quote trick, not a
+    # backslash-escaped quote (which terminates the ffmpeg filter string early)
+    assert "'\\''" in result
+    assert "Ryan\\'" not in result
+
+
 def test_missing_required_crop_raises():
     import pytest
 

@@ -17,6 +17,8 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
   const [assets, setAssets] = useState<VideoAsset[]>([]);
   const [drafts, setDrafts] = useState<Record<string, SegmentDraft>>({});
   const [error, setError] = useState<string | null>(null);
+  const [musicAssetId, setMusicAssetId] = useState<string>("");
+  const musicAssets = assets.filter((a) => a.asset_type === "music");
 
   useEffect(() => {
     Promise.all([listAssets(params.id), getCampaign(params.id)]).then(([assetList, campaign]) => {
@@ -41,7 +43,7 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
     setError(null);
     try {
       await saveSegments(params.id, Object.values(drafts));
-      const job = await submitRenderJob(params.id, "id_ID-voice-medium");
+      const job = await submitRenderJob(params.id, "id_ID-news_tts-medium", musicAssetId || undefined);
       router.push(`/campaigns/${params.id}/preview/${job.job_id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -61,6 +63,17 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
           onChange={(updated) => setDrafts({ ...drafts, [key]: updated })}
         />
       ))}
+      <label>
+        Background music
+        <select value={musicAssetId} onChange={(e) => setMusicAssetId(e.target.value)}>
+          <option value="">No music</option>
+          {musicAssets.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.file_path.split("/").pop()}
+            </option>
+          ))}
+        </select>
+      </label>
       <button type="button" onClick={handleSubmit}>
         Submit Render
       </button>

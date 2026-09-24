@@ -41,6 +41,7 @@ services:
     volumes:
       - video-assets:/app/video-assets
       - piper-voices:/app/voices
+      - whisper-cache:/root/.cache/huggingface
 
   ai-worker:
     build: ../apps/ai-worker
@@ -67,3 +68,4 @@ volumes:
   ollama:
   video-assets:
   piper-voices:
+  whisper-cache:

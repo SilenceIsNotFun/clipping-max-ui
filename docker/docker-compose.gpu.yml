@@ -7,3 +7,12 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+  video-worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
