@@ -12,6 +12,7 @@ export function createApp() {
   // not a multi-tenant service, and the web-ui talks to the api cross-origin.
   app.use(cors());
   app.use(express.json());
+  app.use("/media", express.static(process.env.VIDEO_ASSETS_DIR ?? "/app/video-assets"));
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok" });

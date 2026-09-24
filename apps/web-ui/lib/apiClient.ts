@@ -82,3 +82,56 @@ export async function listMoments(campaignId: string, assetId: string): Promise<
   if (!res.ok) throw new Error(`list moments failed with status ${res.status}`);
   return res.json();
 }
+
+export type LayoutTemplate =
+  | "standard"
+  | "gameplay_facecam_split"
+  | "gameplay_full_focus"
+  | "cinematic_letterbox";
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SegmentDraft {
+  segment_key: string;
+  video_asset_id: string;
+  secondary_video_asset_id?: string;
+  trim_start: number;
+  trim_end: number;
+  order_index: number;
+  layout_template: LayoutTemplate;
+  crop_gameplay_rect?: CropRect;
+  crop_facecam_rect?: CropRect;
+  title_text?: string;
+}
+
+export async function saveSegments(campaignId: string, segments: SegmentDraft[]): Promise<unknown> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/segments`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ segments }),
+  });
+  if (!res.ok) {
+    const body = await res.json();
+    throw new Error(JSON.stringify(body));
+  }
+  return res.json();
+}
+
+export async function submitRenderJob(
+  campaignId: string,
+  ttsVoice: string,
+  musicAssetId?: string
+): Promise<{ job_id: string; status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/render`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tts_voice: ttsVoice, music_asset_id: musicAssetId }),
+  });
+  if (!res.ok) throw new Error(`render submit failed with status ${res.status}`);
+  return res.json();
+}
