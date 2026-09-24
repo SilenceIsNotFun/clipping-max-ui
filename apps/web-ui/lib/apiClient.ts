@@ -135,3 +135,29 @@ export async function submitRenderJob(
   if (!res.ok) throw new Error(`render submit failed with status ${res.status}`);
   return res.json();
 }
+
+export interface RenderJobDetail {
+  id: string;
+  campaign_id: string;
+  status: "queued" | "rendering" | "ready_for_preview" | "final" | "failed";
+  tts_voice: string;
+  music_asset_id: string | null;
+  output_path: string | null;
+  error_message: string | null;
+}
+
+export async function getRenderJob(campaignId: string, jobId: string): Promise<RenderJobDetail> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/render/${jobId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`get render job failed with status ${res.status}`);
+  return res.json();
+}
+
+export async function finalizeRenderJob(campaignId: string, jobId: string): Promise<RenderJobDetail> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/render/${jobId}/finalize`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`finalize failed with status ${res.status}`);
+  return res.json();
+}
