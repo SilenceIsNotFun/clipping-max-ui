@@ -123,7 +123,7 @@ requests==2.32.3
 soundfile==0.12.1
 numpy==2.1.1
 faster-whisper==1.0.3
-piper-tts==1.2.0
+piper-tts==1.8.0
 pytest==8.3.3
 httpx==0.27.2
 ```
@@ -339,6 +339,7 @@ git commit -m "feat(video-worker): scaffold service with ffmpeg trim/concat prim
 - Create: `apps/video-worker/moment_detection.py`
 - Create: `apps/video-worker/tests/test_moment_detection.py`
 - Create: `apps/video-worker/tests/fixtures/short_clip_with_peak.wav`
+- Create: `apps/video-worker/tests/fixtures/cut_clip.mp4`
 
 **Interfaces:**
 - Consumes: `probe_duration` from Task 1 (not required at call time, but same module family).
@@ -377,6 +378,11 @@ sf.write("apps/video-worker/tests/fixtures/short_clip_with_peak.wav", signal, sr
 PY
 ```
 
+Also generate a fixture with a genuine hard cut, for the scene-change test (`short_clip.mp4` from Task 1 is a static two-color frame held for its whole duration and never changes, so it can never trigger a scene-change detection):
+```bash
+ffmpeg -y -f lavfi -i "color=c=red:s=320x180:d=1" -f lavfi -i "color=c=blue:s=320x180:d=1" -filter_complex "[0:v][1:v]concat=n=2:v=1:a=0" -c:v libx264 apps/video-worker/tests/fixtures/cut_clip.mp4
+```
+
 - [ ] **Step 3: Write failing tests**
 
 `apps/video-worker/tests/test_moment_detection.py`:
@@ -403,11 +409,22 @@ def test_detect_audio_peaks_finds_the_loud_window():
 
 
 def test_detect_scene_changes_returns_list_for_short_clip():
+    # short_clip.mp4 (Task 1's fixture) is a static two-color frame held for
+    # its whole duration -- nothing ever changes, so it can never trigger a
+    # scene-change detection. Confirm that case returns an empty list rather
+    # than erroring.
     candidates = detect_scene_changes(os.path.join(FIXTURES, "short_clip.mp4"))
-    assert isinstance(candidates, list)
-    for c in candidates:
-        assert c.detection_type == "scene_change"
-        assert 0.0 <= c.score <= 1.0
+    assert candidates == []
+
+
+def test_detect_scene_changes_finds_the_real_cut():
+    candidates = detect_scene_changes(os.path.join(FIXTURES, "cut_clip.mp4"))
+    assert len(candidates) >= 1
+    top = candidates[0]
+    assert top.detection_type == "scene_change"
+    assert 0.0 <= top.score <= 1.0
+    # The cut happens at the 1-second boundary between the two 1s clips.
+    assert 800 <= top.timestamp_ms <= 1200
 ```
 
 - [ ] **Step 4: Run tests to verify they fail**
@@ -466,13 +483,21 @@ def detect_audio_peaks(audio_path: str) -> list[MomentCandidate]:
 
 
 def detect_scene_changes(video_path: str) -> list[MomentCandidate]:
+    # NOTE: an earlier version of this function used the `showinfo` filter
+    # and expected `pts_time` and `lavfi.scene_score` on the same stderr
+    # line. Verified against real ffmpeg (7.1.5): `showinfo` never prints
+    # `lavfi.scene_score` at all, so that version silently always returned
+    # an empty list. `metadata=print` is the filter that actually exposes
+    # the score, and it prints `pts_time` on one line and
+    # `lavfi.scene_score=...` on the NEXT line -- paired here by order, not
+    # by co-occurrence on one line.
     result = subprocess.run(
         [
             "ffmpeg",
             "-i",
             video_path,
             "-vf",
-            f"select='gt(scene,{SCENE_THRESHOLD})',showinfo",
+            f"select='gt(scene,{SCENE_THRESHOLD})',metadata=print",
             "-f",
             "null",
             "-",
@@ -481,32 +506,34 @@ def detect_scene_changes(video_path: str) -> list[MomentCandidate]:
         text=True,
     )
     candidates = []
+    pending_pts_ms: int | None = None
     for line in result.stderr.splitlines():
-        if "pts_time" not in line or "lavfi.scene_score" not in line:
-            continue
         pts_match = SHOWINFO_RE.search(line)
-        score_match = SCENE_SCORE_RE.search(line)
-        if not pts_match or not score_match:
+        if pts_match:
+            pending_pts_ms = int(float(pts_match.group(1)) * 1000)
             continue
-        candidates.append(
-            MomentCandidate(
-                timestamp_ms=int(float(pts_match.group(1)) * 1000),
-                score=min(float(score_match.group(1)), 1.0),
-                detection_type="scene_change",
+        score_match = SCENE_SCORE_RE.search(line)
+        if score_match and pending_pts_ms is not None:
+            candidates.append(
+                MomentCandidate(
+                    timestamp_ms=pending_pts_ms,
+                    score=min(float(score_match.group(1)), 1.0),
+                    detection_type="scene_change",
+                )
             )
-        )
+            pending_pts_ms = None
     return candidates
 ```
 
 - [ ] **Step 6: Run tests to verify they pass**
 
 Run: `cd apps/video-worker && python -m pytest tests/test_moment_detection.py -v`
-Expected: both tests PASS.
+Expected: all 3 tests PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/video-worker/moment_detection.py apps/video-worker/schemas.py apps/video-worker/tests/test_moment_detection.py apps/video-worker/tests/fixtures/short_clip_with_peak.wav
+git add apps/video-worker/moment_detection.py apps/video-worker/schemas.py apps/video-worker/tests/test_moment_detection.py apps/video-worker/tests/fixtures/short_clip_with_peak.wav apps/video-worker/tests/fixtures/cut_clip.mp4
 git commit -m "feat(video-worker): detect audio-peak and scene-change moment candidates"
 ```
 
