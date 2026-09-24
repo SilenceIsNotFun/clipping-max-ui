@@ -802,14 +802,17 @@ def test_parse_route_invalid_doc_type_returns_400():
 
 
 def test_plan_route_returns_plan_result():
-    fake_raw = """```json
-{
-  "strategy_summary": "s",
-  "requirements_checklist": ["a"],
-  "content_plan": {"hook": "h"},
-  "opportunity_score": 50
-}
-```"""
+    fake_raw = (
+        "Here is the plan:\n"
+        "```json\n"
+        "{\n"
+        '  "strategy_summary": "s",\n'
+        '  "requirements_checklist": ["a"],\n'
+        '  "content_plan": {"hook": "h"},\n'
+        '  "opportunity_score": 50\n'
+        "}\n"
+        "```"
+    )
     with patch("main.call_ollama", return_value=fake_raw):
         resp = client.post(
             "/plan",
@@ -828,7 +831,7 @@ def test_plan_route_returns_plan_result():
     body = resp.json()
     assert body["strategy_summary"] == "s"
     assert body["opportunity_score"] == 50
-```
+````
 
 - [ ] **Step 2: Run tests to verify they fail**
 

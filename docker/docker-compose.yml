@@ -1,0 +1,53 @@
+services:
+  web-ui:
+    build:
+      context: ../apps/web-ui
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build: ../apps/api
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - UPLOAD_DIR=/app/uploads
+      - DATA_DIR=/app/data
+      - DB_PATH=/app/data/app.db
+      - EXPORT_DIR=/app/data/exports
+      - AI_WORKER_URL=http://ai-worker:8000
+    volumes:
+      - uploads:/app/uploads
+      - data:/app/data
+    depends_on:
+      - ai-worker
+    restart: unless-stopped
+
+  ai-worker:
+    build: ../apps/ai-worker
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=mistral:7b-instruct
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  data:
+  ollama:
