@@ -38,4 +38,22 @@ describe("getDb", () => {
     expect(row.status).toBe("uploaded");
     db.close();
   });
+
+  it("creates the video content generation tables", () => {
+    const db = getDb(dbPath);
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((row: any) => row.name);
+    expect(tables).toEqual(
+      expect.arrayContaining([
+        "video_assets",
+        "moment_candidates",
+        "segment_assignments",
+        "render_jobs",
+        "caption_words",
+      ])
+    );
+    db.close();
+  });
 });

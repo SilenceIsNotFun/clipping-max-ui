@@ -39,6 +39,60 @@ CREATE TABLE IF NOT EXISTS review_tasks (
   created_at TEXT NOT NULL,
   resolved_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS video_assets (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  file_path TEXT NOT NULL,
+  asset_type TEXT NOT NULL,
+  duration_seconds REAL NOT NULL,
+  analysis_status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS moment_candidates (
+  id TEXT PRIMARY KEY,
+  video_asset_id TEXT NOT NULL REFERENCES video_assets(id),
+  timestamp_ms INTEGER NOT NULL,
+  score REAL NOT NULL,
+  detection_type TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS segment_assignments (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  segment_key TEXT NOT NULL,
+  video_asset_id TEXT NOT NULL REFERENCES video_assets(id),
+  secondary_video_asset_id TEXT REFERENCES video_assets(id),
+  trim_start REAL NOT NULL,
+  trim_end REAL NOT NULL,
+  order_index INTEGER NOT NULL,
+  layout_template TEXT NOT NULL,
+  crop_gameplay_rect TEXT,
+  crop_facecam_rect TEXT,
+  title_text TEXT
+);
+
+CREATE TABLE IF NOT EXISTS render_jobs (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  status TEXT NOT NULL,
+  tts_voice TEXT NOT NULL,
+  music_asset_id TEXT REFERENCES video_assets(id),
+  output_path TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS caption_words (
+  id TEXT PRIMARY KEY,
+  render_job_id TEXT NOT NULL REFERENCES render_jobs(id),
+  word TEXT NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL
+);
 `;
 
 // NOTE: intentionally caches by first call only, ignoring subsequent dbPath args — fine since
