@@ -1198,15 +1198,17 @@ def _render_single_segment(
     video_filter = build_segment_filter(segment_filter_input)
 
     trimmed_path = os.path.join(work_dir, f"segment_{index}_video.mp4")
-    inputs = ["-i", segment.file_path]
+    # ffmpeg applies -ss/-to only to the -i that immediately follows them, so
+    # each input needs its own copy of the trim window -- a single leading
+    # -ss/-to (as an earlier version of this function had) silently leaves
+    # every input after the first untrimmed, which breaks the two-source
+    # gameplay_facecam_split case (the facecam clip would play from its own
+    # start instead of the operator-selected window).
+    inputs = ["-ss", str(segment.trim_start), "-to", str(segment.trim_end), "-i", segment.file_path]
     if segment.secondary_file_path:
-        inputs += ["-i", segment.secondary_file_path]
+        inputs += ["-ss", str(segment.trim_start), "-to", str(segment.trim_end), "-i", segment.secondary_file_path]
 
-    args = (
-        ["ffmpeg", "-y", "-ss", str(segment.trim_start), "-to", str(segment.trim_end)]
-        + inputs
-        + ["-filter_complex", video_filter, "-an", trimmed_path]
-    )
+    args = ["ffmpeg", "-y"] + inputs + ["-filter_complex", video_filter, "-an", trimmed_path]
     run_ffmpeg(args)
     return trimmed_path, tts_path
 
