@@ -13,3 +13,9 @@ class MomentCandidate(BaseModel):
     timestamp_ms: int
     score: float
     detection_type: Literal["audio_peak", "scene_change"]
+
+
+class CaptionWord(BaseModel):
+    word: str
+    start_ms: int
+    end_ms: int
