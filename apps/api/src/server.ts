@@ -3,6 +3,7 @@ import express, { NextFunction, Request, Response } from "express";
 import { createCampaignsRouter } from "./routes/campaigns";
 import { createAssetsRouter } from "./routes/assets";
 import { createInternalRouter } from "./routes/internal";
+import { createSegmentsRouter } from "./routes/segments";
 
 export function createApp() {
   const app = express();
@@ -17,6 +18,7 @@ export function createApp() {
 
   app.use("/api/campaigns", createCampaignsRouter());
   app.use("/api/campaigns/:id/assets", createAssetsRouter());
+  app.use("/api/campaigns/:id/segments", createSegmentsRouter());
   app.use("/api/internal", createInternalRouter());
 
   // Error-handling middleware must be registered last, with 4 args, so
