@@ -187,7 +187,7 @@ Add to the top-level `volumes:` block in `docker/docker-compose.yml`:
 
 Generate the fixture (run once):
 ```bash
-ffmpeg -y -f lavfi -i "color=c=red:s=320x180:d=1[top]; color=c=blue:s=320x180:d=1[bottom]; [top][bottom]vstack" -c:v libx264 -t 2 apps/video-worker/tests/fixtures/short_clip.mp4
+ffmpeg -y -f lavfi -i "color=c=red:s=320x180[top]; color=c=blue:s=320x180[bottom]; [top][bottom]vstack" -f lavfi -i "anullsrc=r=44100:cl=stereo" -c:v libx264 -c:a aac -t 2 -shortest apps/video-worker/tests/fixtures/short_clip.mp4
 ```
 
 - [ ] **Step 2: Write failing tests for ffmpeg primitives**
@@ -1030,7 +1030,7 @@ git commit -m "feat(video-worker): build ffmpeg filter graphs for 4 layout templ
 - Create: `apps/video-worker/tests/test_render.py`
 
 **Interfaces:**
-- Consumes: `build_trim_args`/`build_concat_args`/`run_ffmpeg`/`probe_duration` from Task 1, `generate_tts` from Task 4, `align_words` from Task 5, `build_segment_filter` from Task 6.
+- Consumes: `run_ffmpeg`/`probe_duration` from Task 1, `generate_tts` from Task 4, `align_words` from Task 5, `build_segment_filter` from Task 6. (Task 1's `build_concat_args` is NOT used here — it concatenates streams that both have audio, but this task's per-segment videos are intentionally audio-free (`-an`) since voiceover comes from TTS, not the source footage. This task writes its own video-only and audio-only concat helpers instead.)
 - Produces: `render_video(job: RenderJobInput, work_dir: str) -> RenderResult` where `RenderJobInput` (added to `schemas.py`) has `segments: list[RenderSegmentInput]` (each with `file_path`, `secondary_file_path: str | None`, `trim_start`, `trim_end`, `order_index`, `script_text`, `layout_template`, `crop_gameplay_rect`, `crop_facecam_rect`, `title_text`), `tts_voice: str`, `voices_dir: str`, `music_path: str | None`, `output_path: str`; `RenderResult` has `output_path: str`, `caption_words: list[CaptionWord]`. Task 8 (`/render` route) depends on this signature.
 
 - [ ] **Step 1: Add `RenderSegmentInput`/`RenderJobInput`/`RenderResult` schemas**
@@ -1070,6 +1070,7 @@ class RenderResult(BaseModel):
 `apps/video-worker/tests/test_render.py`:
 ```python
 import os
+import wave
 from unittest.mock import patch
 
 from schemas import CaptionWord, RenderJobInput, RenderSegmentInput
@@ -1080,8 +1081,14 @@ CLIP = os.path.join(FIXTURES, "short_clip.mp4")
 
 
 def fake_generate_tts(text, voice, voices_dir, output_path):
-    with open(output_path, "wb") as f:
-        f.write(b"RIFF")
+    # Write a real, tiny, valid (silent) WAV file -- render_video's audio
+    # concat step runs a real ffmpeg process against this path, so a
+    # placeholder like b"RIFF" (not a decodable WAV) would fail there.
+    with wave.open(output_path, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 1600)  # 0.1s of silence
 
 
 def fake_align_words(audio_path):
@@ -1137,15 +1144,17 @@ Expected: `ModuleNotFoundError: No module named 'render'`.
 import os
 
 from alignment import align_words
-from ffmpeg_utils import build_concat_args, probe_duration, run_ffmpeg
+from ffmpeg_utils import probe_duration, run_ffmpeg
 from layout import build_segment_filter
 from schemas import CaptionWord, RenderJobInput, RenderResult, SegmentInput
 from tts import generate_tts
 
 
-def _render_single_segment(segment, index: int, work_dir: str) -> tuple[str, str]:
+def _render_single_segment(
+    segment, index: int, tts_voice: str, voices_dir: str, work_dir: str
+) -> tuple[str, str]:
     tts_path = os.path.join(work_dir, f"segment_{index}_tts.wav")
-    generate_tts(segment.script_text, "voice-placeholder", "/app/voices", tts_path)
+    generate_tts(segment.script_text, tts_voice, voices_dir, tts_path)
 
     segment_filter_input = SegmentInput(
         layout_template=segment.layout_template,
@@ -1170,16 +1179,43 @@ def _render_single_segment(segment, index: int, work_dir: str) -> tuple[str, str
     return trimmed_path, tts_path
 
 
+def _concat_video_only(video_paths: list[str], output_path: str) -> None:
+    """Concat video-only streams (segments are rendered with -an, so the
+    generic av-concat in ffmpeg_utils.build_concat_args does not apply)."""
+    filter_inputs = "".join(f"[{i}:v]" for i in range(len(video_paths)))
+    filter_complex = f"{filter_inputs}concat=n={len(video_paths)}:v=1:a=0[outv]"
+    args = ["ffmpeg", "-y"]
+    for path in video_paths:
+        args += ["-i", path]
+    args += ["-filter_complex", filter_complex, "-map", "[outv]", output_path]
+    run_ffmpeg(args)
+
+
+def _concat_audio_only(audio_paths: list[str], output_path: str) -> None:
+    """Concat the per-segment TTS voiceover clips into one continuous track."""
+    filter_inputs = "".join(f"[{i}:a]" for i in range(len(audio_paths)))
+    filter_complex = f"{filter_inputs}concat=n={len(audio_paths)}:v=0:a=1[outa]"
+    args = ["ffmpeg", "-y"]
+    for path in audio_paths:
+        args += ["-i", path]
+    args += ["-filter_complex", filter_complex, "-map", "[outa]", output_path]
+    run_ffmpeg(args)
+
+
 def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
     ordered_segments = sorted(job.segments, key=lambda s: s.order_index)
 
     video_paths: list[str] = []
+    tts_paths: list[str] = []
     all_caption_words: list[CaptionWord] = []
     offset_ms = 0
 
     for index, segment in enumerate(ordered_segments):
-        video_path, tts_path = _render_single_segment(segment, index, work_dir)
+        video_path, tts_path = _render_single_segment(
+            segment, index, job.tts_voice, job.voices_dir, work_dir
+        )
         video_paths.append(video_path)
+        tts_paths.append(tts_path)
 
         words = align_words(tts_path)
         for word in words:
@@ -1192,8 +1228,11 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
             )
         offset_ms += int(probe_duration(video_path) * 1000)
 
-    concat_output = os.path.join(work_dir, "concatenated.mp4")
-    run_ffmpeg(build_concat_args(video_paths, concat_output))
+    concat_video = os.path.join(work_dir, "concatenated_video.mp4")
+    _concat_video_only(video_paths, concat_video)
+
+    concat_voiceover = os.path.join(work_dir, "concatenated_voiceover.wav")
+    _concat_audio_only(tts_paths, concat_voiceover)
 
     final_output = job.output_path
     if job.music_path:
@@ -1202,20 +1241,38 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
                 "ffmpeg",
                 "-y",
                 "-i",
-                concat_output,
+                concat_video,
+                "-i",
+                concat_voiceover,
                 "-i",
                 job.music_path,
                 "-filter_complex",
-                "[1:a]volume=0.2[music];[0:a][music]amix=inputs=2:duration=first[a]",
+                "[2:a]volume=0.2[music];[1:a][music]amix=inputs=2:duration=first[a]",
                 "-map",
                 "0:v",
                 "-map",
                 "[a]",
+                "-shortest",
                 final_output,
             ]
         )
     else:
-        run_ffmpeg(["ffmpeg", "-y", "-i", concat_output, "-c", "copy", final_output])
+        run_ffmpeg(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                concat_video,
+                "-i",
+                concat_voiceover,
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-shortest",
+                final_output,
+            ]
+        )
 
     return RenderResult(output_path=final_output, caption_words=all_caption_words)
 ```
