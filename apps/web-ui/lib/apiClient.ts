@@ -41,3 +41,44 @@ export async function getCampaign(id: string): Promise<CampaignDetail> {
   if (!res.ok) throw new Error(`get campaign failed with status ${res.status}`);
   return res.json();
 }
+
+export interface VideoAsset {
+  id: string;
+  campaign_id: string;
+  file_path: string;
+  asset_type: "footage" | "music";
+  duration_seconds: number;
+  analysis_status: "pending" | "done" | "failed";
+  created_at: string;
+}
+
+export interface MomentCandidate {
+  id: string;
+  video_asset_id: string;
+  timestamp_ms: number;
+  score: number;
+  detection_type: "audio_peak" | "scene_change";
+}
+
+export async function uploadAsset(campaignId: string, formData: FormData): Promise<VideoAsset> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`asset upload failed with status ${res.status}`);
+  return res.json();
+}
+
+export async function listAssets(campaignId: string): Promise<VideoAsset[]> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`list assets failed with status ${res.status}`);
+  return res.json();
+}
+
+export async function listMoments(campaignId: string, assetId: string): Promise<MomentCandidate[]> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}/moments`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`list moments failed with status ${res.status}`);
+  return res.json();
+}
