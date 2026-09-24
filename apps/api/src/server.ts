@@ -1,6 +1,8 @@
 import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import { createCampaignsRouter } from "./routes/campaigns";
+import { createAssetsRouter } from "./routes/assets";
+import { createInternalRouter } from "./routes/internal";
 
 export function createApp() {
   const app = express();
@@ -14,6 +16,8 @@ export function createApp() {
   });
 
   app.use("/api/campaigns", createCampaignsRouter());
+  app.use("/api/campaigns/:id/assets", createAssetsRouter());
+  app.use("/api/internal", createInternalRouter());
 
   // Error-handling middleware must be registered last, with 4 args, so
   // Express recognizes it as an error handler. This prevents an error
