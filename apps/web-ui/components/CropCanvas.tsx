@@ -1,20 +1,33 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CropRect } from "../lib/apiClient";
 
 export function CropCanvas({
   imageSrc,
   label,
+  initialRect,
   onChange,
 }: {
   imageSrc: string;
   label: string;
+  initialRect?: CropRect | null;
   onChange: (rect: CropRect) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [start, setStart] = useState<{ x: number; y: number } | null>(null);
   const [rect, setRect] = useState<CropRect | null>(null);
+
+  useEffect(() => {
+    if (initialRect) {
+      setRect(initialRect);
+      onChange(initialRect);
+    }
+    // Only re-run when the suggestion itself changes (by reference), not on
+    // every parent re-render -- onChange is intentionally excluded from deps
+    // since it's a fresh closure each render in the current SegmentEditor usage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRect]);
 
   function relativePos(e: React.MouseEvent): { x: number; y: number } {
     const bounds = containerRef.current!.getBoundingClientRect();
