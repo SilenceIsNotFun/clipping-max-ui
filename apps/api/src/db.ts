@@ -118,6 +118,15 @@ export function getDb(dbPath: string): Database.Database {
   db.pragma("busy_timeout = 5000");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+
+  // Migration path for DBs created before caption_style was added to segment_assignments.
+  // CREATE TABLE IF NOT EXISTS above is a no-op for pre-existing tables, so add the column
+  // explicitly if it's missing.
+  const segmentAssignmentColumns = db.prepare("PRAGMA table_info(segment_assignments)").all() as { name: string }[];
+  if (!segmentAssignmentColumns.some((c) => c.name === "caption_style")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN caption_style TEXT");
+  }
+
   cached = db;
   return db;
 }
