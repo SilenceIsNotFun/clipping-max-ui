@@ -4,21 +4,68 @@ from alignment import align_words
 from ffmpeg_utils import probe_duration, run_ffmpeg
 from layout import build_segment_filter
 from schemas import CaptionWord, RenderJobInput, RenderResult, SegmentInput
+from title_render import render_title_png
 from tts import generate_tts
 
 
-def _write_srt(caption_words: list[CaptionWord], srt_path: str) -> None:
-    def format_ts(ms: int) -> str:
-        hours, ms = divmod(ms, 3_600_000)
-        minutes, ms = divmod(ms, 60_000)
-        seconds, millis = divmod(ms, 1_000)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
+CAPTION_STYLES: dict[str, dict[str, str]] = {
+    "default": {"primary": "&H00FFFFFF", "highlight": "&H0000FFFF", "outline": "&H00000000"},
+    "energetic": {"primary": "&H00FFFFFF", "highlight": "&H000080FF", "outline": "&H00000000"},
+    "warning": {"primary": "&H0080FFFF", "highlight": "&H000000FF", "outline": "&H00000000"},
+}
 
-    with open(srt_path, "w", encoding="utf-8") as f:
-        for i, word in enumerate(caption_words, start=1):
-            f.write(f"{i}\n")
-            f.write(f"{format_ts(word.start_ms)} --> {format_ts(word.end_ms)}\n")
-            f.write(f"{word.word}\n\n")
+
+def _format_ass_timestamp(ms: int) -> str:
+    hours, rem_ms = divmod(ms, 3_600_000)
+    minutes, rem_ms = divmod(rem_ms, 60_000)
+    seconds, centis_ms = divmod(rem_ms, 1_000)
+    centis = centis_ms // 10
+    return f"{hours}:{minutes:02d}:{seconds:02d}.{centis:02d}"
+
+
+WORDS_PER_LINE = 4
+
+
+def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str) -> None:
+    """Writes an ASS (Advanced SubStation Alpha) subtitle file with karaoke-style
+    per-word highlighting: consecutive words are grouped into short lines (fixed
+    chunks of WORDS_PER_LINE words), and for each word's own [start, end] window
+    a Dialogue event is emitted showing the FULL line, with that word wrapped in
+    the highlight color override tag and the rest of the line left at the
+    style's default PrimaryColour (no override tag needed there)."""
+    style = CAPTION_STYLES.get(style_name, CAPTION_STYLES["default"])
+
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "PlayResX: 1080\n"
+        "PlayResY: 1920\n"
+        "WrapStyle: 2\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,DejaVu Sans,72,{style['primary']},{style['outline']},1,1,3,0,2,40,40,120,1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+
+    lines = [header]
+    for line_start in range(0, len(caption_words), WORDS_PER_LINE):
+        line_words = caption_words[line_start : line_start + WORDS_PER_LINE]
+        for active_index, active_word in enumerate(line_words):
+            parts = []
+            for i, w in enumerate(line_words):
+                if i == active_index:
+                    parts.append(f"{{\\c{style['highlight']}}}{w.word}{{\\c{style['primary']}}}")
+                else:
+                    parts.append(w.word)
+            text = " ".join(parts)
+            start_ts = _format_ass_timestamp(active_word.start_ms)
+            end_ts = _format_ass_timestamp(active_word.end_ms)
+            lines.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}\n")
+
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 def _render_single_segment(
@@ -27,12 +74,17 @@ def _render_single_segment(
     tts_path = os.path.join(work_dir, f"segment_{index}_tts.wav")
     generate_tts(segment.script_text, tts_voice, voices_dir, tts_path)
 
+    title_overlay_path = None
+    if segment.title_text:
+        title_overlay_path = os.path.join(work_dir, f"segment_{index}_title.png")
+        render_title_png(segment.title_text, title_overlay_path)
+
     segment_filter_input = SegmentInput(
         layout_template=segment.layout_template,
         crop_gameplay_rect=segment.crop_gameplay_rect,
         crop_facecam_rect=segment.crop_facecam_rect,
         has_secondary=segment.secondary_file_path is not None,
-        title_text=segment.title_text,
+        title_overlay_path=title_overlay_path,
     )
     video_filter = build_segment_filter(segment_filter_input)
 
@@ -46,8 +98,10 @@ def _render_single_segment(
     inputs = ["-ss", str(segment.trim_start), "-to", str(segment.trim_end), "-i", segment.file_path]
     if segment.secondary_file_path:
         inputs += ["-ss", str(segment.trim_start), "-to", str(segment.trim_end), "-i", segment.secondary_file_path]
+    if title_overlay_path:
+        inputs += ["-i", title_overlay_path]
 
-    args = ["ffmpeg", "-y"] + inputs + ["-filter_complex", video_filter, "-an", trimmed_path]
+    args = ["ffmpeg", "-y"] + inputs + ["-filter_complex", video_filter, "-map", "[out]", trimmed_path]
     run_ffmpeg(args)
     return trimmed_path, tts_path
 
@@ -107,9 +161,12 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
     concat_voiceover = os.path.join(work_dir, "concatenated_voiceover.wav")
     _concat_audio_only(tts_paths, concat_voiceover)
 
-    srt_path = os.path.join(work_dir, "captions.srt")
-    _write_srt(all_caption_words, srt_path)
-    escaped_srt_path = srt_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    caption_style = (
+        ordered_segments[0].caption_style if ordered_segments and ordered_segments[0].caption_style else "default"
+    )
+    ass_path = os.path.join(work_dir, "captions.ass")
+    _write_ass(all_caption_words, caption_style, ass_path)
+    escaped_ass_path = ass_path.replace("\\", "\\\\").replace("'", "'\\''")
 
     final_output = job.output_path
     if job.music_path:
@@ -126,7 +183,7 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
                 "-i",
                 job.music_path,
                 "-filter_complex",
-                f"[0:v]subtitles='{escaped_srt_path}'[v];"
+                f"[0:v]subtitles='{escaped_ass_path}'[v];"
                 "[2:a]volume=0.2[music];[1:a][music]amix=inputs=2:duration=first[a]",
                 "-map",
                 "[v]",
@@ -146,7 +203,7 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
                 "-i",
                 concat_voiceover,
                 "-filter_complex",
-                f"[0:v]subtitles='{escaped_srt_path}'[v]",
+                f"[0:v]subtitles='{escaped_ass_path}'[v]",
                 "-map",
                 "[v]",
                 "-map",

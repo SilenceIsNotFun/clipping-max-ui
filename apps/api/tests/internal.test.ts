@@ -58,6 +58,40 @@ describe("internal analysis-complete callback", () => {
     const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(assetId) as any;
     expect(asset.analysis_status).toBe("failed");
   });
+
+  it("stores a crop suggestion when the callback includes one", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/internal/assets/${assetId}/analysis-complete`)
+      .send({
+        video_asset_id: assetId,
+        moment_candidates: [],
+        crop_suggestion: {
+          crop_gameplay_rect: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+          crop_facecam_rect: null,
+          detection_method: "face",
+          confidence: 0.7,
+        },
+      });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const rows = db.prepare("SELECT * FROM crop_suggestions WHERE video_asset_id = ?").all(assetId) as any[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detection_method).toBe("face");
+    expect(JSON.parse(rows[0].crop_gameplay_rect).x).toBe(0.1);
+  });
+
+  it("does not store a crop suggestion when the callback's crop_suggestion is null", async () => {
+    const app = createApp();
+    await request(app)
+      .post(`/api/internal/assets/${assetId}/analysis-complete`)
+      .send({ video_asset_id: assetId, moment_candidates: [], crop_suggestion: null });
+
+    const db = getDb(dbPath);
+    const rows = db.prepare("SELECT * FROM crop_suggestions WHERE video_asset_id = ?").all(assetId);
+    expect(rows).toHaveLength(0);
+  });
 });
 
 describe("internal render-complete callback", () => {

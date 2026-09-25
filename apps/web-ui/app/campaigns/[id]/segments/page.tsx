@@ -60,7 +60,9 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
           segmentKey={key}
           assets={assets}
           draft={draft}
-          onChange={(updated) => setDrafts({ ...drafts, [key]: updated })}
+          onChange={(updated) =>
+            setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], ...updated } }))
+          }
         />
       ))}
       <label>

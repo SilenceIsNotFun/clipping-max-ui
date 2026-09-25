@@ -107,6 +107,7 @@ export interface SegmentDraft {
   crop_gameplay_rect?: CropRect;
   crop_facecam_rect?: CropRect;
   title_text?: string;
+  caption_style?: string;
 }
 
 export async function saveSegments(campaignId: string, segments: SegmentDraft[]): Promise<unknown> {
@@ -119,6 +120,22 @@ export async function saveSegments(campaignId: string, segments: SegmentDraft[])
     const body = await res.json();
     throw new Error(JSON.stringify(body));
   }
+  return res.json();
+}
+
+export interface CropSuggestion {
+  crop_gameplay_rect: string | null;
+  crop_facecam_rect: string | null;
+  detection_method: "face" | "saliency";
+  confidence: number;
+}
+
+export async function getCropSuggestion(campaignId: string, assetId: string): Promise<CropSuggestion | null> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}/crop-suggestion`, {
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`get crop suggestion failed with status ${res.status}`);
   return res.json();
 }
 

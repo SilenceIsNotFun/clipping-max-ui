@@ -53,6 +53,7 @@ export function createRenderRouter(): Router {
       crop_gameplay_rect: s.crop_gameplay_rect ? JSON.parse(s.crop_gameplay_rect) : undefined,
       crop_facecam_rect: s.crop_facecam_rect ? JSON.parse(s.crop_facecam_rect) : undefined,
       title_text: s.title_text ?? undefined,
+      caption_style: s.caption_style ?? undefined,
     }));
 
     const musicPath = musicAssetId ? assetPathById.get(musicAssetId) ?? null : null;

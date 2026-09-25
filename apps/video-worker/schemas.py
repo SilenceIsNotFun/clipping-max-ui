@@ -28,6 +28,13 @@ class CropRect(BaseModel):
     height: float
 
 
+class CropSuggestion(BaseModel):
+    crop_gameplay_rect: Optional[CropRect] = None
+    crop_facecam_rect: Optional[CropRect] = None
+    detection_method: Literal["face", "saliency"]
+    confidence: float
+
+
 class SegmentInput(BaseModel):
     layout_template: Literal[
         "standard", "gameplay_facecam_split", "gameplay_full_focus", "cinematic_letterbox"
@@ -35,7 +42,7 @@ class SegmentInput(BaseModel):
     crop_gameplay_rect: Optional[CropRect] = None
     crop_facecam_rect: Optional[CropRect] = None
     has_secondary: bool = False
-    title_text: Optional[str] = None
+    title_overlay_path: Optional[str] = None
 
 
 class RenderSegmentInput(BaseModel):
@@ -51,6 +58,7 @@ class RenderSegmentInput(BaseModel):
     crop_gameplay_rect: Optional[CropRect] = None
     crop_facecam_rect: Optional[CropRect] = None
     title_text: Optional[str] = None
+    caption_style: Optional[str] = None
 
 
 class RenderJobInput(BaseModel):

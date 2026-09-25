@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CropRect,
+  CropSuggestion,
   LayoutTemplate,
   MomentCandidate,
   SegmentDraft,
   VideoAsset,
+  getCropSuggestion,
   listMoments,
 } from "../lib/apiClient";
 import { TimelineScrubber } from "./TimelineScrubber";
@@ -25,6 +27,8 @@ const TEMPLATES: LayoutTemplate[] = [
   "cinematic_letterbox",
 ];
 
+const CAPTION_STYLES = ["default", "energetic", "warning"];
+
 export function SegmentEditor({
   campaignId,
   segmentKey,
@@ -39,6 +43,7 @@ export function SegmentEditor({
   onChange: (draft: SegmentDraft) => void;
 }) {
   const [moments, setMoments] = useState<MomentCandidate[]>([]);
+  const [cropSuggestion, setCropSuggestion] = useState<CropSuggestion | null>(null);
   const asset = assets.find((a) => a.id === draft.video_asset_id);
 
   useEffect(() => {
@@ -46,6 +51,23 @@ export function SegmentEditor({
       listMoments(campaignId, draft.video_asset_id).then(setMoments);
     }
   }, [campaignId, draft.video_asset_id]);
+
+  useEffect(() => {
+    if (draft.video_asset_id) {
+      getCropSuggestion(campaignId, draft.video_asset_id).then(setCropSuggestion);
+    } else {
+      setCropSuggestion(null);
+    }
+  }, [campaignId, draft.video_asset_id]);
+
+  const gameplaySuggestedRect = useMemo(
+    () => (cropSuggestion?.crop_gameplay_rect ? JSON.parse(cropSuggestion.crop_gameplay_rect) : null),
+    [cropSuggestion?.crop_gameplay_rect]
+  );
+  const facecamSuggestedRect = useMemo(
+    () => (cropSuggestion?.crop_facecam_rect ? JSON.parse(cropSuggestion.crop_facecam_rect) : null),
+    [cropSuggestion?.crop_facecam_rect]
+  );
 
   const needsGameplayCrop =
     !draft.secondary_video_asset_id &&
@@ -96,6 +118,7 @@ export function SegmentEditor({
         <CropCanvas
           imageSrc={mediaUrl(asset.file_path)}
           label="Gameplay area"
+          initialRect={gameplaySuggestedRect}
           onChange={(rect: CropRect) => onChange({ ...draft, crop_gameplay_rect: rect })}
         />
       )}
@@ -103,6 +126,7 @@ export function SegmentEditor({
         <CropCanvas
           imageSrc={mediaUrl(asset.file_path)}
           label="Facecam area"
+          initialRect={facecamSuggestedRect}
           onChange={(rect: CropRect) => onChange({ ...draft, crop_facecam_rect: rect })}
         />
       )}
@@ -113,6 +137,17 @@ export function SegmentEditor({
         value={draft.title_text ?? ""}
         onChange={(e) => onChange({ ...draft, title_text: e.target.value })}
       />
+
+      <select
+        value={draft.caption_style ?? "default"}
+        onChange={(e) => onChange({ ...draft, caption_style: e.target.value })}
+      >
+        {CAPTION_STYLES.map((style) => (
+          <option key={style} value={style}>
+            {style}
+          </option>
+        ))}
+      </select>
     </fieldset>
   );
 }
