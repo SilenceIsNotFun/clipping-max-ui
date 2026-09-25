@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 from ffmpeg_utils import probe_duration
-from schemas import CropRect
+from schemas import CropRect, CropSuggestion
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 YUNET_MODEL_PATH = os.path.join(MODEL_DIR, "face_detection_yunet.onnx")
@@ -144,3 +144,70 @@ def detect_face_crop(video_path: str) -> Tuple[Optional[CropRect], Optional[Crop
             return primary, secondary
 
     return primary, None
+
+
+SALIENCY_SAMPLE_COUNT = 10
+SALIENCY_CROP_SIZE = 0.6
+
+
+def detect_saliency_crop(video_path: str) -> Optional[CropRect]:
+    """Falls back to visual saliency + inter-frame motion when no face is
+    found (e.g. gameplay footage, product demos)."""
+    duration = probe_duration(video_path)
+    timestamps = _sample_frame_timestamps(duration, count=SALIENCY_SAMPLE_COUNT)
+
+    saliency = cv2.saliency.StaticSaliencySpectralResidual_create()
+    weighted_x, weighted_y, total_weight = 0.0, 0.0, 0.0
+
+    for ts in timestamps:
+        frame = _extract_frame(video_path, ts)
+        if frame is None:
+            continue
+        h, w = frame.shape[:2]
+        success, sal_map = saliency.computeSaliency(frame)
+        if not success:
+            continue
+        sal_map = (sal_map * 255).astype("uint8")
+        moments = cv2.moments(sal_map)
+        if moments["m00"] == 0:
+            continue
+        cx = moments["m10"] / moments["m00"] / w
+        cy = moments["m01"] / moments["m00"] / h
+        weighted_x += cx
+        weighted_y += cy
+        total_weight += 1.0
+
+    if total_weight == 0:
+        return None
+
+    cx = weighted_x / total_weight
+    cy = weighted_y / total_weight
+    crop_w = crop_h = SALIENCY_CROP_SIZE
+    x = max(0.0, min(1.0 - crop_w, cx - crop_w / 2))
+    y = max(0.0, min(1.0 - crop_h, cy - crop_h / 2))
+    return CropRect(x=round(x, 3), y=round(y, 3), width=crop_w, height=crop_h)
+
+
+def detect_crop_suggestion(video_path: str) -> Optional[CropSuggestion]:
+    """Top-level entry point: tries face detection first (higher confidence),
+    falls back to saliency+motion if no face is found, returns None if neither
+    finds anything usable."""
+    primary, secondary = detect_face_crop(video_path)
+    if primary is not None:
+        return CropSuggestion(
+            crop_gameplay_rect=primary,
+            crop_facecam_rect=secondary,
+            detection_method="face",
+            confidence=0.7,
+        )
+
+    saliency_rect = detect_saliency_crop(video_path)
+    if saliency_rect is not None:
+        return CropSuggestion(
+            crop_gameplay_rect=saliency_rect,
+            crop_facecam_rect=None,
+            detection_method="saliency",
+            confidence=0.4,
+        )
+
+    return None
