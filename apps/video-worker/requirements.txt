@@ -9,3 +9,4 @@ piper-tts==1.8.0
 pytest==8.3.3
 httpx==0.27.2
 opencv-contrib-python-headless==4.10.0.84
+Pillow==10.4.0
