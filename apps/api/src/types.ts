@@ -63,6 +63,16 @@ export interface MomentCandidate {
   created_at: string;
 }
 
+export interface CropSuggestion {
+  id: string;
+  video_asset_id: string;
+  crop_gameplay_rect: string | null; // JSON-encoded CropRect
+  crop_facecam_rect: string | null; // JSON-encoded CropRect
+  detection_method: "face" | "saliency";
+  confidence: number;
+  created_at: string;
+}
+
 export type LayoutTemplate =
   | "standard"
   | "gameplay_facecam_split"
@@ -89,6 +99,7 @@ export interface SegmentAssignment {
   crop_gameplay_rect: string | null; // JSON-encoded CropRect
   crop_facecam_rect: string | null; // JSON-encoded CropRect
   title_text: string | null;
+  caption_style: string | null;
 }
 
 export type RenderJobStatus = "queued" | "rendering" | "ready_for_preview" | "final" | "failed";

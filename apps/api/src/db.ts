@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS moment_candidates (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS crop_suggestions (
+  id TEXT PRIMARY KEY,
+  video_asset_id TEXT NOT NULL REFERENCES video_assets(id),
+  crop_gameplay_rect TEXT,
+  crop_facecam_rect TEXT,
+  detection_method TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS segment_assignments (
   id TEXT PRIMARY KEY,
   campaign_id TEXT NOT NULL REFERENCES campaigns(id),
@@ -71,7 +81,8 @@ CREATE TABLE IF NOT EXISTS segment_assignments (
   layout_template TEXT NOT NULL,
   crop_gameplay_rect TEXT,
   crop_facecam_rect TEXT,
-  title_text TEXT
+  title_text TEXT,
+  caption_style TEXT
 );
 
 CREATE TABLE IF NOT EXISTS render_jobs (

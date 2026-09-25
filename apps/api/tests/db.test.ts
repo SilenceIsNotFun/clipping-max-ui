@@ -56,4 +56,20 @@ describe("getDb", () => {
     );
     db.close();
   });
+
+  it("creates the crop_suggestions table with a caption_style column on segment_assignments", () => {
+    const db = getDb(dbPath);
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((row: any) => row.name);
+    expect(tables).toContain("crop_suggestions");
+
+    const columns = db
+      .prepare("PRAGMA table_info(segment_assignments)")
+      .all()
+      .map((row: any) => row.name);
+    expect(columns).toContain("caption_style");
+    db.close();
+  });
 });
