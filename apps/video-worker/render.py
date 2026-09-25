@@ -23,12 +23,16 @@ def _format_ass_timestamp(ms: int) -> str:
     return f"{hours}:{minutes:02d}:{seconds:02d}.{centis:02d}"
 
 
+WORDS_PER_LINE = 4
+
+
 def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str) -> None:
-    """Writes an ASS (Advanced SubStation Alpha) subtitle file with one
-    Dialogue event per word: the full sentence-so-far context isn't tracked
-    (MVP keeps this simple), each word is shown alone for its own [start,
-    end] window with a color-swap override tag simulating karaoke-style
-    highlighting when the word is active."""
+    """Writes an ASS (Advanced SubStation Alpha) subtitle file with karaoke-style
+    per-word highlighting: consecutive words are grouped into short lines (fixed
+    chunks of WORDS_PER_LINE words), and for each word's own [start, end] window
+    a Dialogue event is emitted showing the FULL line, with that word wrapped in
+    the highlight color override tag and the rest of the line left at the
+    style's default PrimaryColour (no override tag needed there)."""
     style = CAPTION_STYLES.get(style_name, CAPTION_STYLES["default"])
 
     header = (
@@ -46,11 +50,19 @@ def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str)
     )
 
     lines = [header]
-    for word in caption_words:
-        start_ts = _format_ass_timestamp(word.start_ms)
-        end_ts = _format_ass_timestamp(word.end_ms)
-        text = f"{{\\c{style['highlight']}}}{word.word}{{\\c{style['primary']}}}"
-        lines.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}\n")
+    for line_start in range(0, len(caption_words), WORDS_PER_LINE):
+        line_words = caption_words[line_start : line_start + WORDS_PER_LINE]
+        for active_index, active_word in enumerate(line_words):
+            parts = []
+            for i, w in enumerate(line_words):
+                if i == active_index:
+                    parts.append(f"{{\\c{style['highlight']}}}{w.word}{{\\c{style['primary']}}}")
+                else:
+                    parts.append(w.word)
+            text = " ".join(parts)
+            start_ts = _format_ass_timestamp(active_word.start_ms)
+            end_ts = _format_ass_timestamp(active_word.end_ms)
+            lines.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{text}\n")
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.writelines(lines)
