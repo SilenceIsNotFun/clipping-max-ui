@@ -40,6 +40,14 @@ ASSET_RESPONSE=$(curl -sf -X POST "$API_URL/api/campaigns/$CAMPAIGN_ID/assets" \
 ASSET_ID=$(echo "$ASSET_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])")
 echo "Asset: $ASSET_ID"
 
+echo "Checking crop-suggestion endpoint (advisory only, may be empty for a 2-tone synthetic fixture)..."
+CROP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/campaigns/$CAMPAIGN_ID/assets/$ASSET_ID/crop-suggestion")
+echo "Crop suggestion endpoint status: $CROP_STATUS (200 = found, 404 = none found -- both are valid outcomes for this synthetic fixture)"
+if [[ "$CROP_STATUS" != "200" && "$CROP_STATUS" != "404" ]]; then
+  echo "FAIL: unexpected status from crop-suggestion endpoint"
+  exit 1
+fi
+
 echo "Waiting for analysis to complete..."
 for i in $(seq 1 20); do
   STATUS=$(curl -sf "$API_URL/api/campaigns/$CAMPAIGN_ID/assets" | python3 -c "
@@ -75,6 +83,8 @@ segments = [
         "order_index": i,
         "layout_template": "gameplay_full_focus",
         "crop_gameplay_rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 0.5},
+        "caption_style": "energetic",
+        "title_text": "E2E Title Test" if i == 0 else None,
     }
     for i, key in enumerate(keys)
 ]
