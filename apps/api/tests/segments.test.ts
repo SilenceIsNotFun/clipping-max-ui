@@ -60,6 +60,7 @@ describe("segment assignment route", () => {
             trim_end: 2,
             order_index: 0,
             layout_template: "standard",
+            caption_style: "energetic",
           },
           {
             segment_key: "body",
@@ -74,8 +75,10 @@ describe("segment assignment route", () => {
 
     expect(res.status).toBe(200);
     const db = getDb(dbPath);
-    const rows = db.prepare("SELECT * FROM segment_assignments WHERE campaign_id = ?").all(campaignId);
+    const rows = db.prepare("SELECT * FROM segment_assignments WHERE campaign_id = ?").all(campaignId) as any[];
     expect(rows).toHaveLength(2);
+    const hookRow = rows.find((r: any) => r.segment_key === "hook");
+    expect(hookRow.caption_style).toBe("energetic");
   });
 
   it("rejects when a content_plan segment is missing", async () => {
