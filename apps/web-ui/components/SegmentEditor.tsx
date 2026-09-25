@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CropRect,
   CropSuggestion,
@@ -60,6 +60,15 @@ export function SegmentEditor({
     }
   }, [campaignId, draft.video_asset_id]);
 
+  const gameplaySuggestedRect = useMemo(
+    () => (cropSuggestion?.crop_gameplay_rect ? JSON.parse(cropSuggestion.crop_gameplay_rect) : null),
+    [cropSuggestion?.crop_gameplay_rect]
+  );
+  const facecamSuggestedRect = useMemo(
+    () => (cropSuggestion?.crop_facecam_rect ? JSON.parse(cropSuggestion.crop_facecam_rect) : null),
+    [cropSuggestion?.crop_facecam_rect]
+  );
+
   const needsGameplayCrop =
     !draft.secondary_video_asset_id &&
     (draft.layout_template === "gameplay_full_focus" || draft.layout_template === "gameplay_facecam_split");
@@ -109,7 +118,7 @@ export function SegmentEditor({
         <CropCanvas
           imageSrc={mediaUrl(asset.file_path)}
           label="Gameplay area"
-          initialRect={cropSuggestion ? JSON.parse(cropSuggestion.crop_gameplay_rect ?? "null") : null}
+          initialRect={gameplaySuggestedRect}
           onChange={(rect: CropRect) => onChange({ ...draft, crop_gameplay_rect: rect })}
         />
       )}
@@ -117,7 +126,7 @@ export function SegmentEditor({
         <CropCanvas
           imageSrc={mediaUrl(asset.file_path)}
           label="Facecam area"
-          initialRect={cropSuggestion ? JSON.parse(cropSuggestion.crop_facecam_rect ?? "null") : null}
+          initialRect={facecamSuggestedRect}
           onChange={(rect: CropRect) => onChange({ ...draft, crop_facecam_rect: rect })}
         />
       )}
