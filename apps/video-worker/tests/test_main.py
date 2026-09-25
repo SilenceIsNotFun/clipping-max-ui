@@ -115,6 +115,29 @@ def test_analyze_callback_crop_suggestion_is_null_when_none_found():
     assert kwargs["json"]["crop_suggestion"] is None
 
 
+def test_analyze_callback_crop_suggestion_is_null_on_exception():
+    with patch("main.detect_audio_peaks", return_value=[]), patch(
+        "main.detect_scene_changes", return_value=[]
+    ), patch(
+        "main.detect_crop_suggestion", side_effect=ValueError("crop detection failed")
+    ), patch("main.requests.post") as mock_post:
+        client.post(
+            "/analyze",
+            json={
+                "video_asset_id": "asset-crop-3",
+                "file_path": "/fake/path.mp4",
+                "callback_url": "http://api:4000/api/internal/assets/asset-crop-3/analysis-complete",
+            },
+        )
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    _, kwargs = mock_post.call_args
+    assert kwargs["json"]["crop_suggestion"] is None
+
+
 def test_render_returns_202_and_calls_callback_with_output():
     with patch("main.render_video") as mock_render, patch("main.requests.post") as mock_post:
         from schemas import CaptionWord, RenderResult
