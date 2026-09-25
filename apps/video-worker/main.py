@@ -4,6 +4,7 @@ import tempfile
 import requests
 from fastapi import BackgroundTasks, FastAPI
 
+from face_crop import detect_crop_suggestion
 from moment_detection import detect_audio_peaks, detect_scene_changes
 from render import render_video
 from schemas import RenderJobInput
@@ -19,11 +20,16 @@ def health() -> dict:
 def _run_analysis(video_asset_id: str, file_path: str, callback_url: str) -> None:
     try:
         candidates = detect_audio_peaks(file_path) + detect_scene_changes(file_path)
+        try:
+            crop_suggestion = detect_crop_suggestion(file_path)
+        except Exception:  # noqa: BLE001 - crop suggestion failure must not fail the whole analysis
+            crop_suggestion = None
         requests.post(
             callback_url,
             json={
                 "video_asset_id": video_asset_id,
                 "moment_candidates": [c.model_dump() for c in candidates],
+                "crop_suggestion": crop_suggestion.model_dump() if crop_suggestion else None,
             },
             timeout=30,
         )

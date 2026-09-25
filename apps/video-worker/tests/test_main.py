@@ -15,7 +15,11 @@ def test_health():
 
 
 def test_analyze_returns_202_and_calls_callback_with_candidates():
-    with patch("main.requests.post") as mock_post:
+    with patch("main.detect_audio_peaks", return_value=[]), patch(
+        "main.detect_scene_changes", return_value=[]
+    ), patch("main.detect_crop_suggestion", return_value=None), patch(
+        "main.requests.post"
+    ) as mock_post:
         resp = client.post(
             "/analyze",
             json={
@@ -36,6 +40,7 @@ def test_analyze_returns_202_and_calls_callback_with_candidates():
         body = kwargs["json"]
         assert body["video_asset_id"] == "asset-1"
         assert "moment_candidates" in body
+        assert "crop_suggestion" in body
 
 
 def test_analyze_reports_error_on_bad_file():
@@ -54,6 +59,60 @@ def test_analyze_reports_error_on_bad_file():
             time.sleep(0.05)
         _, kwargs = mock_post.call_args
         assert "error" in kwargs["json"]
+
+
+def test_analyze_calls_callback_with_crop_suggestion():
+    from schemas import CropRect, CropSuggestion
+
+    fake_suggestion = CropSuggestion(
+        crop_gameplay_rect=CropRect(x=0.1, y=0.1, width=0.5, height=0.5),
+        crop_facecam_rect=None,
+        detection_method="face",
+        confidence=0.7,
+    )
+    with patch("main.detect_audio_peaks", return_value=[]), patch(
+        "main.detect_scene_changes", return_value=[]
+    ), patch("main.detect_crop_suggestion", return_value=fake_suggestion), patch(
+        "main.requests.post"
+    ) as mock_post:
+        client.post(
+            "/analyze",
+            json={
+                "video_asset_id": "asset-crop-1",
+                "file_path": "/fake/path.mp4",
+                "callback_url": "http://api:4000/api/internal/assets/asset-crop-1/analysis-complete",
+            },
+        )
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    _, kwargs = mock_post.call_args
+    body = kwargs["json"]
+    assert body["crop_suggestion"]["detection_method"] == "face"
+    assert body["crop_suggestion"]["crop_gameplay_rect"]["x"] == 0.1
+
+
+def test_analyze_callback_crop_suggestion_is_null_when_none_found():
+    with patch("main.detect_audio_peaks", return_value=[]), patch(
+        "main.detect_scene_changes", return_value=[]
+    ), patch("main.detect_crop_suggestion", return_value=None), patch("main.requests.post") as mock_post:
+        client.post(
+            "/analyze",
+            json={
+                "video_asset_id": "asset-crop-2",
+                "file_path": "/fake/path.mp4",
+                "callback_url": "http://api:4000/api/internal/assets/asset-crop-2/analysis-complete",
+            },
+        )
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    _, kwargs = mock_post.call_args
+    assert kwargs["json"]["crop_suggestion"] is None
 
 
 def test_render_returns_202_and_calls_callback_with_output():
