@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import request from "supertest";
 import { createApp } from "../src/server";
-import { resetDbCacheForTests } from "../src/db";
+import { getDb, resetDbCacheForTests } from "../src/db";
 
 jest.mock("../src/services/videoWorkerClient", () => ({
   analyzeAsset: jest.fn().mockResolvedValue(undefined),
@@ -91,5 +91,48 @@ describe("asset routes", () => {
       .attach("file", badFile);
 
     expect(res.status).toBe(400);
+  });
+
+  it("returns the crop suggestion for an asset", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO crop_suggestions (id, video_asset_id, crop_gameplay_rect, crop_facecam_rect, detection_method, confidence, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "suggestion-1",
+      assetId,
+      JSON.stringify({ x: 0.2, y: 0.2, width: 0.4, height: 0.4 }),
+      null,
+      "face",
+      0.7,
+      new Date().toISOString()
+    );
+
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/${assetId}/crop-suggestion`);
+    expect(res.status).toBe(200);
+    expect(res.body.detection_method).toBe("face");
+    expect(JSON.parse(res.body.crop_gameplay_rect).x).toBe(0.2);
+  });
+
+  it("returns 404 when no crop suggestion exists for an asset", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const res = await request(app).get(
+      `/api/campaigns/${campaignId}/assets/${uploadRes.body.id}/crop-suggestion`
+    );
+    expect(res.status).toBe(404);
   });
 });
