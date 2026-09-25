@@ -59,3 +59,50 @@ def test_render_video_produces_output_and_offsets_captions(tmp_path):
     # second segment's caption words must be offset by the first segment's duration (1.0s)
     assert result.caption_words[0].start_ms == 0
     assert result.caption_words[1].start_ms == 1000
+
+
+def test_write_ass_default_style_produces_dialogue_events_with_color_tags(tmp_path):
+    from render import _write_ass
+    from schemas import CaptionWord
+
+    words = [
+        CaptionWord(word="hello", start_ms=0, end_ms=300),
+        CaptionWord(word="world", start_ms=300, end_ms=600),
+    ]
+    ass_path = str(tmp_path / "captions.ass")
+    _write_ass(words, "default", ass_path)
+
+    content = open(ass_path, encoding="utf-8").read()
+    assert "[Script Info]" in content
+    assert "[V4+ Styles]" in content
+    assert "[Events]" in content
+    # One Dialogue event per active word (karaoke-style highlight)
+    assert content.count("Dialogue:") == 2
+    assert "hello" in content
+    assert "world" in content
+    # Color-swap override tag for the highlighted word
+    assert "\\c&H" in content
+
+
+def test_write_ass_unknown_style_falls_back_to_default(tmp_path):
+    from render import _write_ass
+    from schemas import CaptionWord
+
+    words = [CaptionWord(word="hi", start_ms=0, end_ms=200)]
+    ass_path = str(tmp_path / "captions.ass")
+    # Must not raise even with a style name that doesn't exist
+    _write_ass(words, "nonexistent_style_xyz", ass_path)
+    assert os.path.exists(ass_path)
+
+
+def test_write_ass_handles_empty_caption_words(tmp_path):
+    from render import _write_ass
+
+    ass_path = str(tmp_path / "captions.ass")
+    _write_ass([], "default", ass_path)
+    content = open(ass_path, encoding="utf-8").read()
+    # Header sections must still be present even with zero words, so the
+    # subtitles= filter has a syntactically valid (if caption-less) file to
+    # burn in rather than failing the whole render on an edge case.
+    assert "[Events]" in content
+    assert content.count("Dialogue:") == 0
