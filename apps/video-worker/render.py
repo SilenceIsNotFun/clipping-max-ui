@@ -4,6 +4,7 @@ from alignment import align_words
 from ffmpeg_utils import probe_duration, run_ffmpeg
 from layout import build_segment_filter
 from schemas import CaptionWord, RenderJobInput, RenderResult, SegmentInput
+from title_render import render_title_png
 from tts import generate_tts
 
 
@@ -27,12 +28,17 @@ def _render_single_segment(
     tts_path = os.path.join(work_dir, f"segment_{index}_tts.wav")
     generate_tts(segment.script_text, tts_voice, voices_dir, tts_path)
 
+    title_overlay_path = None
+    if segment.title_text:
+        title_overlay_path = os.path.join(work_dir, f"segment_{index}_title.png")
+        render_title_png(segment.title_text, title_overlay_path)
+
     segment_filter_input = SegmentInput(
         layout_template=segment.layout_template,
         crop_gameplay_rect=segment.crop_gameplay_rect,
         crop_facecam_rect=segment.crop_facecam_rect,
         has_secondary=segment.secondary_file_path is not None,
-        title_text=segment.title_text,
+        title_overlay_path=title_overlay_path,
     )
     video_filter = build_segment_filter(segment_filter_input)
 
@@ -46,8 +52,10 @@ def _render_single_segment(
     inputs = ["-ss", str(segment.trim_start), "-to", str(segment.trim_end), "-i", segment.file_path]
     if segment.secondary_file_path:
         inputs += ["-ss", str(segment.trim_start), "-to", str(segment.trim_end), "-i", segment.secondary_file_path]
+    if title_overlay_path:
+        inputs += ["-i", title_overlay_path]
 
-    args = ["ffmpeg", "-y"] + inputs + ["-filter_complex", video_filter, "-an", trimmed_path]
+    args = ["ffmpeg", "-y"] + inputs + ["-filter_complex", video_filter, "-map", "[out]", trimmed_path]
     run_ffmpeg(args)
     return trimmed_path, tts_path
 

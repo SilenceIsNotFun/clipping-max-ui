@@ -42,7 +42,7 @@ class SegmentInput(BaseModel):
     crop_gameplay_rect: Optional[CropRect] = None
     crop_facecam_rect: Optional[CropRect] = None
     has_secondary: bool = False
-    title_text: Optional[str] = None
+    title_overlay_path: Optional[str] = None
 
 
 class RenderSegmentInput(BaseModel):
