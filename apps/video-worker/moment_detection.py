@@ -12,6 +12,13 @@ WINDOW_SECONDS = 0.5
 STEP_SECONDS = 0.25
 SCENE_THRESHOLD = 0.4
 
+# Set to e.g. "cuda" to decode via GPU (NVDEC) when scanning long videos for
+# scene changes -- this is the actual bottleneck for long files (the whole
+# video is decoded frame-by-frame), unlike face-crop detection which only
+# samples a fixed handful of frames regardless of duration. Empty by default
+# so this works unmodified on hosts with no GPU.
+FFMPEG_HWACCEL = os.environ.get("FFMPEG_HWACCEL", "")
+
 SHOWINFO_RE = re.compile(r"pts_time:([\d.]+)")
 SCENE_SCORE_RE = re.compile(r"lavfi\.scene_score=([\d.]+)")
 
@@ -68,6 +75,23 @@ def detect_audio_peaks(audio_path: str) -> list[MomentCandidate]:
     return candidates
 
 
+def _build_scene_change_args(video_path: str, hwaccel: str) -> list[str]:
+    args = ["ffmpeg"]
+    if hwaccel:
+        # -hwaccel must precede -i to apply to this input's decode.
+        args += ["-hwaccel", hwaccel]
+    args += [
+        "-i",
+        video_path,
+        "-vf",
+        f"select='gt(scene,{SCENE_THRESHOLD})',metadata=print",
+        "-f",
+        "null",
+        "-",
+    ]
+    return args
+
+
 def detect_scene_changes(video_path: str) -> list[MomentCandidate]:
     # NOTE: an earlier version of this function used the `showinfo` filter
     # and expected `pts_time` and `lavfi.scene_score` on the same stderr
@@ -78,19 +102,20 @@ def detect_scene_changes(video_path: str) -> list[MomentCandidate]:
     # `lavfi.scene_score=...` on the NEXT line -- paired here by order, not
     # by co-occurrence on one line.
     result = subprocess.run(
-        [
-            "ffmpeg",
-            "-i",
-            video_path,
-            "-vf",
-            f"select='gt(scene,{SCENE_THRESHOLD})',metadata=print",
-            "-f",
-            "null",
-            "-",
-        ],
+        _build_scene_change_args(video_path, FFMPEG_HWACCEL),
         capture_output=True,
         text=True,
     )
+    if FFMPEG_HWACCEL and result.returncode != 0:
+        # GPU decode can fail for reasons unrelated to this file (driver not
+        # actually available inside this container, unsupported codec for
+        # NVDEC, etc). Don't let that silently produce an empty (wrong)
+        # result -- retry once on plain CPU decode.
+        result = subprocess.run(
+            _build_scene_change_args(video_path, ""),
+            capture_output=True,
+            text=True,
+        )
     candidates = []
     pending_pts_ms: int | None = None
     for line in result.stderr.splitlines():

@@ -38,10 +38,23 @@ services:
     environment:
       - API_INTERNAL_CALLBACK_URL=http://api:4000/api/internal
       - PIPER_VOICES_DIR=/app/voices
+      # GPU-decode long videos when scanning for scene changes (the only
+      # part of analysis that scans the whole file frame-by-frame). Face/crop
+      # detection samples a fixed handful of frames regardless of duration,
+      # so it doesn't need this. Falls back to CPU decode automatically if
+      # NVDEC isn't actually usable at runtime.
+      - FFMPEG_HWACCEL=cuda
     volumes:
       - video-assets:/app/video-assets
       - piper-voices:/app/voices
       - whisper-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   ai-worker:
     build: ../apps/ai-worker
