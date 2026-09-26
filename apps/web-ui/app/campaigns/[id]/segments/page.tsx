@@ -51,8 +51,8 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
   }
 
   return (
-    <main>
-      <h1>Assign Segments</h1>
+    <main className="flex flex-col gap-5">
+      <h1 className="brand-gradient-text text-2xl font-bold sm:text-3xl">Assign Segments</h1>
       {Object.entries(drafts).map(([key, draft]) => (
         <SegmentEditor
           key={key}
@@ -65,21 +65,35 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
           }
         />
       ))}
-      <label>
-        Background music
-        <select value={musicAssetId} onChange={(e) => setMusicAssetId(e.target.value)}>
-          <option value="">No music</option>
-          {musicAssets.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.file_path.split("/").pop()}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="button" onClick={handleSubmit}>
-        Submit Render
+      <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-5">
+        <label className="flex flex-col gap-2 text-sm font-medium text-slate-600 sm:flex-row sm:items-center sm:gap-3">
+          Background music
+          <select
+            value={musicAssetId}
+            onChange={(e) => setMusicAssetId(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+          >
+            <option value="">No music</option>
+            {musicAssets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.file_path.split("/").pop()}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <button
+        type="button"
+        onClick={handleSubmit}
+        className="w-fit rounded-xl bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-200 transition hover:opacity-90"
+      >
+        Submit Render 🎬
       </button>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm font-medium text-rose-500">
+          {error}
+        </p>
+      )}
     </main>
   );
 }

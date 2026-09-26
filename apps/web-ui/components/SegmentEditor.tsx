@@ -74,80 +74,99 @@ export function SegmentEditor({
     (draft.layout_template === "gameplay_full_focus" || draft.layout_template === "gameplay_facecam_split");
   const needsFacecamCrop = !draft.secondary_video_asset_id && draft.layout_template === "gameplay_facecam_split";
 
-  return (
-    <fieldset>
-      <legend>{segmentKey}</legend>
+  const selectClass =
+    "w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100";
 
-      <select
-        value={draft.video_asset_id}
-        onChange={(e) => onChange({ ...draft, video_asset_id: e.target.value })}
-      >
-        <option value="">Select footage</option>
-        {assets
-          .filter((a) => a.asset_type === "footage")
-          .map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.file_path.split("/").pop()}
+  return (
+    <fieldset className="flex flex-col gap-4 rounded-2xl border border-purple-100 bg-white p-5 shadow-sm">
+      <legend className="rounded-full bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-1 text-sm font-semibold text-white">
+        {segmentKey}
+      </legend>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <select
+          value={draft.video_asset_id}
+          onChange={(e) => onChange({ ...draft, video_asset_id: e.target.value })}
+          className={selectClass}
+        >
+          <option value="">Select footage</option>
+          {assets
+            .filter((a) => a.asset_type === "footage")
+            .map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.file_path.split("/").pop()}
+              </option>
+            ))}
+        </select>
+
+        <select
+          value={draft.layout_template}
+          onChange={(e) => onChange({ ...draft, layout_template: e.target.value as LayoutTemplate })}
+          className={selectClass}
+        >
+          {TEMPLATES.map((t) => (
+            <option key={t} value={t}>
+              {t}
             </option>
           ))}
-      </select>
-
-      <select
-        value={draft.layout_template}
-        onChange={(e) => onChange({ ...draft, layout_template: e.target.value as LayoutTemplate })}
-      >
-        {TEMPLATES.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+        </select>
+      </div>
 
       {asset && (
-        <TimelineScrubber
-          src={mediaUrl(asset.file_path)}
-          durationSeconds={asset.duration_seconds}
-          moments={moments}
-          trimStart={draft.trim_start}
-          trimEnd={draft.trim_end}
-          onChange={(start, end) => onChange({ ...draft, trim_start: start, trim_end: end })}
-        />
+        <div className="rounded-xl bg-slate-50 p-3">
+          <TimelineScrubber
+            src={mediaUrl(asset.file_path)}
+            durationSeconds={asset.duration_seconds}
+            moments={moments}
+            trimStart={draft.trim_start}
+            trimEnd={draft.trim_end}
+            onChange={(start, end) => onChange({ ...draft, trim_start: start, trim_end: end })}
+          />
+        </div>
       )}
 
       {needsGameplayCrop && asset && (
-        <CropCanvas
-          imageSrc={mediaUrl(asset.file_path)}
-          label="Gameplay area"
-          initialRect={gameplaySuggestedRect}
-          onChange={(rect: CropRect) => onChange({ ...draft, crop_gameplay_rect: rect })}
-        />
+        <div className="rounded-xl bg-slate-50 p-3">
+          <CropCanvas
+            imageSrc={mediaUrl(asset.file_path)}
+            label="Gameplay area"
+            initialRect={gameplaySuggestedRect}
+            onChange={(rect: CropRect) => onChange({ ...draft, crop_gameplay_rect: rect })}
+          />
+        </div>
       )}
       {needsFacecamCrop && asset && (
-        <CropCanvas
-          imageSrc={mediaUrl(asset.file_path)}
-          label="Facecam area"
-          initialRect={facecamSuggestedRect}
-          onChange={(rect: CropRect) => onChange({ ...draft, crop_facecam_rect: rect })}
-        />
+        <div className="rounded-xl bg-slate-50 p-3">
+          <CropCanvas
+            imageSrc={mediaUrl(asset.file_path)}
+            label="Facecam area"
+            initialRect={facecamSuggestedRect}
+            onChange={(rect: CropRect) => onChange({ ...draft, crop_facecam_rect: rect })}
+          />
+        </div>
       )}
 
-      <input
-        type="text"
-        placeholder="Title text (optional)"
-        value={draft.title_text ?? ""}
-        onChange={(e) => onChange({ ...draft, title_text: e.target.value })}
-      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <input
+          type="text"
+          placeholder="Title text (optional)"
+          value={draft.title_text ?? ""}
+          onChange={(e) => onChange({ ...draft, title_text: e.target.value })}
+          className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+        />
 
-      <select
-        value={draft.caption_style ?? "default"}
-        onChange={(e) => onChange({ ...draft, caption_style: e.target.value })}
-      >
-        {CAPTION_STYLES.map((style) => (
-          <option key={style} value={style}>
-            {style}
-          </option>
-        ))}
-      </select>
+        <select
+          value={draft.caption_style ?? "default"}
+          onChange={(e) => onChange({ ...draft, caption_style: e.target.value })}
+          className={selectClass}
+        >
+          {CAPTION_STYLES.map((style) => (
+            <option key={style} value={style}>
+              {style}
+            </option>
+          ))}
+        </select>
+      </div>
     </fieldset>
   );
 }

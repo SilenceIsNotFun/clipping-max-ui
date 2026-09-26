@@ -61,11 +61,12 @@ export function CropCanvas({
 
   return (
     <div>
-      <p>{label}</p>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-500">{label}</p>
       <div
         ref={containerRef}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
+        className="overflow-hidden rounded-xl"
         style={{ position: "relative", width: "100%", cursor: "crosshair" }}
       >
         <video
@@ -86,7 +87,8 @@ export function CropCanvas({
               top: `${rect.y * 100}%`,
               width: `${rect.width * 100}%`,
               height: `${rect.height * 100}%`,
-              border: "2px solid red",
+              border: "2px solid #ec4899",
+              boxShadow: "0 0 0 9999px rgba(0,0,0,0.25)",
             }}
           />
         )}

@@ -11,7 +11,16 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ["Poppins", "system-ui", "sans-serif"],
+        // System font stack (no network fetch at build time, unlike next/font/google)
+        sans: [
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
       },
     },
   },

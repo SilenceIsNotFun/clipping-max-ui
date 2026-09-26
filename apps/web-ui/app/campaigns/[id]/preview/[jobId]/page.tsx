@@ -23,10 +23,10 @@ export default function PreviewPage({ params }: { params: { id: string; jobId: s
     };
   }, [params.id, params.jobId]);
 
-  if (!job) return <p>Loading...</p>;
+  if (!job) return <p className="text-slate-400">Loading...</p>;
   return (
-    <main>
-      <h1>Render Preview</h1>
+    <main className="flex flex-col gap-5">
+      <h1 className="brand-gradient-text text-2xl font-bold sm:text-3xl">Render Preview</h1>
       <RenderPreview campaignId={params.id} job={job} />
     </main>
   );

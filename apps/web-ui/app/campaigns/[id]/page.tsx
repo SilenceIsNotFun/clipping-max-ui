@@ -18,7 +18,12 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
     refresh();
   }, [params.id]);
 
-  if (error) return <p role="alert">{error}</p>;
-  if (!campaign) return <p>Loading...</p>;
+  if (error)
+    return (
+      <p role="alert" className="text-sm font-medium text-rose-500">
+        {error}
+      </p>
+    );
+  if (!campaign) return <p className="text-slate-400">Loading...</p>;
   return <CampaignDetail campaign={campaign} onPlanned={refresh} />;
 }
