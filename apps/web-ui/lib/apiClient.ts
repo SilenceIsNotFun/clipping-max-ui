@@ -60,6 +60,16 @@ export async function planCampaign(id: string, details: CampaignPlanDetails): Pr
   return res.json();
 }
 
+export async function retryCampaign(id: string, details: CampaignPlanDetails): Promise<Campaign> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${id}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(details),
+  });
+  if (!res.ok) throw new Error(`retry failed with status ${res.status}`);
+  return res.json();
+}
+
 export interface VideoAsset {
   id: string;
   campaign_id: string;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { CampaignDetail as CampaignDetailType, planCampaign } from "../lib/apiClient";
+import { CampaignDetail as CampaignDetailType, planCampaign, retryCampaign } from "../lib/apiClient";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -25,13 +25,18 @@ export function CampaignDetail({
     setError(null);
     try {
       const formData = new FormData(e.currentTarget);
-      await planCampaign(campaign.id, {
+      const details = {
         content_format: String(formData.get("content_format") ?? ""),
         target_language: String(formData.get("target_language") ?? ""),
         deadline: String(formData.get("deadline") ?? ""),
         reward: String(formData.get("reward") ?? ""),
         constraints: String(formData.get("constraints") ?? ""),
-      });
+      };
+      if (campaign.status === "needs_review") {
+        await retryCampaign(campaign.id, details);
+      } else {
+        await planCampaign(campaign.id, details);
+      }
       onPlanned();
     } catch (err) {
       setError((err as Error).message);
@@ -63,10 +68,16 @@ export function CampaignDetail({
         </div>
       )}
 
-      {campaign.status === "awaiting_details" && (
+      {(campaign.status === "awaiting_details" || campaign.status === "needs_review") && (
         <section className="rounded-2xl border border-sky-100 bg-sky-50/60 p-6">
-          <h2 className="text-lg font-semibold text-slate-800">Content Details</h2>
-          <p className="mt-1 text-sm text-slate-500">BRD parsed. Fill in these details, then generate the content plan.</p>
+          <h2 className="text-lg font-semibold text-slate-800">
+            {campaign.status === "needs_review" ? "Try Again" : "Content Details"}
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {campaign.status === "needs_review"
+              ? "Fix any details below and retry parsing + plan generation."
+              : "BRD parsed. Fill in these details, then generate the content plan."}
+          </p>
           <form onSubmit={handlePlanSubmit} className="mt-4 grid gap-3 sm:grid-cols-2">
             <input type="text" name="content_format" placeholder="Content format (e.g. 15s video)" required className={inputClass} />
             <input type="text" name="target_language" placeholder="Target language" required className={inputClass} />
@@ -78,7 +89,13 @@ export function CampaignDetail({
               disabled={submitting}
               className="w-fit rounded-xl bg-gradient-to-r from-sky-500 to-purple-500 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-sky-100 transition hover:opacity-90 disabled:opacity-50 sm:col-span-2"
             >
-              {submitting ? "Generating..." : "Generate Plan ✨"}
+              {submitting
+                ? campaign.status === "needs_review"
+                  ? "Retrying..."
+                  : "Generating..."
+                : campaign.status === "needs_review"
+                  ? "Try Again 🔁"
+                  : "Generate Plan ✨"}
             </button>
             {error && (
               <p role="alert" className="text-sm font-medium text-rose-500 sm:col-span-2">
