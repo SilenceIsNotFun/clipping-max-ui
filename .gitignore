@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 .venv/
 next-env.d.ts
+.claude/worktrees/
+.superpowers/

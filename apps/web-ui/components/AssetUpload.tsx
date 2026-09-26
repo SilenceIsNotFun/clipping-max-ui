@@ -30,16 +30,32 @@ export function AssetUpload({
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <select name="asset_type" defaultValue="footage">
-        <option value="footage">Footage</option>
-        <option value="music">Music</option>
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-3 rounded-2xl border border-dashed border-orange-200 bg-orange-50/50 p-5 sm:flex-row sm:items-center"
+    >
+      <select
+        name="asset_type"
+        defaultValue="footage"
+        className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+      >
+        <option value="footage">🎬 Footage</option>
+        <option value="music">🎵 Music</option>
       </select>
-      <input type="file" name="file" required />
-      <button type="submit" disabled={submitting}>
+      <input
+        type="file"
+        name="file"
+        required
+        className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+      />
+      <button
+        type="submit"
+        disabled={submitting}
+        className="whitespace-nowrap rounded-xl bg-gradient-to-r from-orange-500 to-pink-500 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-orange-100 transition hover:opacity-90 disabled:opacity-50"
+      >
         {submitting ? "Uploading..." : "Upload"}
       </button>
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="text-sm font-medium text-rose-500">{error}</p>}
     </form>
   );
 }

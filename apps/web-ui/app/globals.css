@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: linear-gradient(135deg, #fdf4ff 0%, #fff7ed 50%, #fdf2f8 100%);
+  min-height: 100vh;
+}
+
+.brand-gradient-text {
+  background: linear-gradient(90deg, #8b5cf6, #ec4899, #f97316);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

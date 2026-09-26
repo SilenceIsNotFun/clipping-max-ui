@@ -1,10 +1,18 @@
 export interface Campaign {
   id: string;
   title: string;
-  status: "uploaded" | "parsing" | "planned" | "needs_review" | "failed";
+  status: "uploaded" | "parsing" | "awaiting_details" | "planned" | "needs_review" | "failed";
   source_file_path: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface CampaignPlanDetails {
+  content_format: string;
+  target_language: string;
+  deadline: string;
+  reward: string;
+  constraints: string;
 }
 
 export interface CampaignDetail extends Campaign {
@@ -39,6 +47,16 @@ export async function listCampaigns(): Promise<Campaign[]> {
 export async function getCampaign(id: string): Promise<CampaignDetail> {
   const res = await fetch(`${API_BASE_URL}/api/campaigns/${id}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`get campaign failed with status ${res.status}`);
+  return res.json();
+}
+
+export async function planCampaign(id: string, details: CampaignPlanDetails): Promise<Campaign> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${id}/plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(details),
+  });
+  if (!res.ok) throw new Error(`generate plan failed with status ${res.status}`);
   return res.json();
 }
 

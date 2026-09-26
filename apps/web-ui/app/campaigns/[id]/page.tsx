@@ -8,13 +8,17 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const [campaign, setCampaign] = useState<CampaignDetailType | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function refresh() {
     getCampaign(params.id)
       .then(setCampaign)
       .catch((err) => setError((err as Error).message));
+  }
+
+  useEffect(() => {
+    refresh();
   }, [params.id]);
 
   if (error) return <p role="alert">{error}</p>;
   if (!campaign) return <p>Loading...</p>;
-  return <CampaignDetail campaign={campaign} />;
+  return <CampaignDetail campaign={campaign} onPlanned={refresh} />;
 }

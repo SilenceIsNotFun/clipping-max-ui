@@ -54,10 +54,31 @@ export function createCampaignsRouter(): Router {
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(id, req.body.title, "parsing", finalPath, now, now);
 
-    await runParseAndPlan(id, finalPath, docType, req.body, aiWorkerUrl, dbPath);
+    await runParse(id, finalPath, docType, aiWorkerUrl, dbPath);
 
     const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id);
     res.status(201).json(campaign);
+  }));
+
+  router.post("/:id/plan", asyncHandler(async (req, res) => {
+    const db = getDb(dbPath);
+    const campaign = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(req.params.id) as
+      | { id: string }
+      | undefined;
+    if (!campaign) {
+      res.status(404).json({ error: "campaign not found" });
+      return;
+    }
+    const document = db
+      .prepare("SELECT * FROM brd_documents WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(req.params.id) as { raw_text: string; extracted_links: string } | undefined;
+    if (!document) {
+      res.status(400).json({ error: "campaign has no parsed document yet" });
+      return;
+    }
+    await runPlan(req.params.id, document, req.body, aiWorkerUrl, dbPath);
+    const updated = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(req.params.id);
+    res.json(updated);
   }));
 
   router.get("/", (_req, res) => {
@@ -113,7 +134,16 @@ export function createCampaignsRouter(): Router {
     }
     const ext = path.extname(campaign.source_file_path).replace(".", "");
     const docType = ext === "pdf" ? "pdf" : ext === "docx" ? "docx" : "image";
-    await runParseAndPlan(campaign.id, campaign.source_file_path, docType, req.body, aiWorkerUrl, dbPath);
+    await runParse(campaign.id, campaign.source_file_path, docType, aiWorkerUrl, dbPath);
+    const afterParse = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(campaign.id) as {
+      status: string;
+    };
+    if (afterParse.status === "awaiting_details") {
+      const document = db
+        .prepare("SELECT * FROM brd_documents WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 1")
+        .get(campaign.id) as { raw_text: string; extracted_links: string };
+      await runPlan(campaign.id, document, req.body, aiWorkerUrl, dbPath);
+    }
     const updated = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(campaign.id);
     res.json(updated);
   }));
@@ -160,11 +190,10 @@ export function createCampaignsRouter(): Router {
   return router;
 }
 
-async function runParseAndPlan(
+async function runParse(
   campaignId: string,
   filePath: string,
   docType: "pdf" | "docx" | "image",
-  body: Record<string, string>,
   aiWorkerUrl: string,
   dbPath: string
 ): Promise<void> {
@@ -197,10 +226,42 @@ async function runParseAndPlan(
       return;
     }
 
+    // Parsing succeeded: stop here and wait for the operator to supply
+    // content_format/target_language/deadline/reward/constraints via
+    // POST /:id/plan, rather than generating a plan immediately with
+    // whatever the upload form happened to carry.
+    db.prepare("UPDATE campaigns SET status = ?, updated_at = ? WHERE id = ?").run(
+      "awaiting_details",
+      now,
+      campaignId
+    );
+  } catch (err) {
+    db.prepare(
+      `INSERT INTO review_tasks (id, campaign_id, reason, status, created_at) VALUES (?, ?, ?, ?, ?)`
+    ).run(randomUUID(), campaignId, (err as Error).message, "open", now);
+    db.prepare("UPDATE campaigns SET status = ?, updated_at = ? WHERE id = ?").run(
+      "needs_review",
+      now,
+      campaignId
+    );
+  }
+}
+
+async function runPlan(
+  campaignId: string,
+  document: { raw_text: string; extracted_links: string },
+  body: Record<string, string>,
+  aiWorkerUrl: string,
+  dbPath: string
+): Promise<void> {
+  const db = getDb(dbPath);
+  const now = new Date().toISOString();
+  try {
+    const extractedLinks = JSON.parse(document.extracted_links);
     const plan = await planCampaign(aiWorkerUrl, {
-      campaign_summary: parsed.raw_text.slice(0, 500),
-      requirements_text: parsed.raw_text,
-      example_links: parsed.extracted_links,
+      campaign_summary: document.raw_text.slice(0, 500),
+      requirements_text: document.raw_text,
+      example_links: extractedLinks,
       content_format: body.content_format ?? "",
       target_language: body.target_language ?? "",
       deadline: body.deadline ?? "",

@@ -16,7 +16,11 @@ def extract_links(text: str) -> list[str]:
 
 def _parse_pdf(file_path: str) -> tuple[str, float]:
     reader = PdfReader(file_path)
-    pages = [page.extract_text() or "" for page in reader.pages]
+    # "layout" mode preserves the visual reading order/spacing of the page;
+    # the default "plain" mode fragments text into overly broken lines on
+    # many real-world PDFs (Word/Canva/Google Docs exports), which is exactly
+    # the "kata per kata" symptom this was changed to fix.
+    pages = [page.extract_text(extraction_mode="layout") or "" for page in reader.pages]
     text = "\n".join(pages)
     confidence = 0.9 if text.strip() else 0.1
     return text, confidence
