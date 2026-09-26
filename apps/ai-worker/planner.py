@@ -28,7 +28,7 @@ content_plan (object with hook, script, assets, schedule),
 opportunity_score (integer 0-100).
 """
 
-JSON_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
 def build_prompt(
@@ -68,7 +68,21 @@ def call_ollama(prompt: str, ollama_url: str, model: str) -> str:
 
 def parse_llm_response(raw: str) -> PlanResult:
     match = JSON_BLOCK_RE.search(raw)
-    if not match:
-        raise ValueError("no JSON block found in LLM response")
-    data = json.loads(match.group(1))
+    if match:
+        candidate = match.group(1)
+    else:
+        # Smaller/less-compliant models (e.g. mistral:7b-instruct) often
+        # ignore the "wrap it in a ```json code block" instruction and just
+        # return a bare JSON object, optionally with surrounding prose --
+        # fall back to the outermost {...} span in the raw text.
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            raise ValueError("no JSON object found in LLM response")
+        candidate = raw[start : end + 1]
+
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LLM response was not valid JSON: {exc}") from exc
     return PlanResult(**data)

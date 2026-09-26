@@ -34,7 +34,7 @@ def test_call_ollama_posts_to_generate_endpoint():
         mock_post.assert_called_once_with(
             "http://ollama:11434/api/generate",
             json={"model": "mistral:7b-instruct", "prompt": "prompt text", "stream": False},
-            timeout=120,
+            timeout=600,
         )
 
 
@@ -56,8 +56,49 @@ def test_parse_llm_response_extracts_json_from_fenced_block():
     assert result.opportunity_score == 72
 
 
+def test_parse_llm_response_extracts_json_without_fence():
+    # mistral:7b-instruct (and other smaller/less-compliant models) often
+    # ignore the "wrap it in a ```json code block" instruction entirely and
+    # just return a bare JSON object.
+    raw = """{
+  "strategy_summary": "Focus on unboxing hook",
+  "requirements_checklist": ["Show product in 3s", "Use hashtag #brand"],
+  "content_plan": {"hook": "Surprise reveal", "script": "...", "assets": ["product shot"]},
+  "opportunity_score": 72
+}
+"""
+    result = parse_llm_response(raw)
+    assert result.strategy_summary == "Focus on unboxing hook"
+    assert result.requirements_checklist == ["Show product in 3s", "Use hashtag #brand"]
+    assert result.content_plan["hook"] == "Surprise reveal"
+    assert result.opportunity_score == 72
+
+
+def test_parse_llm_response_extracts_json_with_surrounding_prose_and_no_fence():
+    raw = """Sure! Here is the plan you requested:
+
+{
+  "strategy_summary": "Focus on unboxing hook",
+  "requirements_checklist": ["Show product in 3s"],
+  "content_plan": {"hook": "Surprise reveal"},
+  "opportunity_score": 72
+}
+
+Let me know if you need anything else!"""
+    result = parse_llm_response(raw)
+    assert result.strategy_summary == "Focus on unboxing hook"
+    assert result.opportunity_score == 72
+
+
 def test_parse_llm_response_raises_on_missing_json():
     import pytest
 
     with pytest.raises(ValueError):
         parse_llm_response("no json here")
+
+
+def test_parse_llm_response_raises_on_malformed_json():
+    import pytest
+
+    with pytest.raises(ValueError):
+        parse_llm_response("{ this is not valid json }")
