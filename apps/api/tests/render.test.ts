@@ -44,9 +44,9 @@ describe("render routes", () => {
     ).run(assetId, campaignId, "/video-assets/a.mp4", "footage", 5.0, "done", now);
     db.prepare(
       `INSERT INTO segment_assignments
-       (id, campaign_id, segment_key, video_asset_id, secondary_video_asset_id, trim_start, trim_end, order_index, layout_template, crop_gameplay_rect, crop_facecam_rect, title_text)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run("seg-1", campaignId, "hook", assetId, null, 0, 2, 0, "standard", null, null, null);
+       (id, campaign_id, segment_key, video_asset_id, secondary_video_asset_id, trim_start, trim_end, order_index, layout_template, crop_gameplay_rect, crop_facecam_rect, title_text, caption_style)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("seg-1", campaignId, "hook", assetId, null, 0, 2, 0, "standard", null, null, null, "warning");
   });
 
   it("submits a render job and returns queued status", async () => {
@@ -58,6 +58,11 @@ describe("render routes", () => {
     expect(res.status).toBe(202);
     expect(res.body.status).toBe("queued");
     expect(res.body.job_id).toBeDefined();
+
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    const segmentsPayload = callArgs[2];
+    expect(segmentsPayload[0].caption_style).toBe("warning");
   });
 
   it("returns job status via GET", async () => {

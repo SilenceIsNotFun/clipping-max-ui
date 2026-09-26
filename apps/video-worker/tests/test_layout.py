@@ -46,28 +46,26 @@ def test_cinematic_letterbox_pads_with_black_bars():
     assert "black" in result
 
 
-def test_title_text_appends_drawtext_filter():
-    segment = SegmentInput(layout_template="standard", title_text="MOMENT CLUTCH TENZ")
+def test_title_overlay_path_appends_overlay_filter_and_out_label():
+    segment = SegmentInput(layout_template="standard", title_overlay_path="/tmp/title.png")
     result = build_segment_filter(segment)
-    assert "drawtext" in result
-    assert "MOMENT CLUTCH TENZ" in result
+    assert "overlay=0:0[out]" in result
+    assert "[1:v]" in result or "1:v" in result
 
 
-def test_no_title_text_omits_drawtext_filter():
-    segment = SegmentInput(layout_template="standard", title_text=None)
+def test_no_title_overlay_path_still_produces_out_label_without_overlay():
+    segment = SegmentInput(layout_template="standard", title_overlay_path=None)
     result = build_segment_filter(segment)
-    assert "drawtext" not in result
+    assert "[out]" in result
+    assert "overlay" not in result
 
 
-def test_title_text_with_apostrophe_is_escaped_safely():
-    segment = SegmentInput(layout_template="standard", title_text="Ryan's clutch")
+def test_title_overlay_uses_correct_input_index_with_secondary_source():
+    segment = SegmentInput(layout_template="gameplay_facecam_split", has_secondary=True, title_overlay_path="/tmp/title.png")
     result = build_segment_filter(segment)
-    assert "Ryan" in result
-    assert "clutch" in result
-    # must use the close-quote/escaped-quote/reopen-quote trick, not a
-    # backslash-escaped quote (which terminates the ffmpeg filter string early)
-    assert "'\\''" in result
-    assert "Ryan\\'" not in result
+    # primary=0, secondary=1, so the title PNG must be input 2 when a
+    # secondary source is present
+    assert "[2:v]overlay=0:0[out]" in result
 
 
 def test_missing_required_crop_raises():

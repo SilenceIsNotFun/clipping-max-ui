@@ -34,6 +34,31 @@ export function createInternalRouter(): Router {
     insertMany(candidates);
 
     db.prepare("UPDATE video_assets SET analysis_status = ? WHERE id = ?").run("done", assetId);
+
+    const cropSuggestion = req.body.crop_suggestion as
+      | {
+          crop_gameplay_rect: Record<string, number> | null;
+          crop_facecam_rect: Record<string, number> | null;
+          detection_method: "face" | "saliency";
+          confidence: number;
+        }
+      | null
+      | undefined;
+    if (cropSuggestion) {
+      db.prepare(
+        `INSERT INTO crop_suggestions (id, video_asset_id, crop_gameplay_rect, crop_facecam_rect, detection_method, confidence, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(),
+        assetId,
+        cropSuggestion.crop_gameplay_rect ? JSON.stringify(cropSuggestion.crop_gameplay_rect) : null,
+        cropSuggestion.crop_facecam_rect ? JSON.stringify(cropSuggestion.crop_facecam_rect) : null,
+        cropSuggestion.detection_method,
+        cropSuggestion.confidence,
+        now
+      );
+    }
+
     res.json({ status: "recorded" });
   });
 

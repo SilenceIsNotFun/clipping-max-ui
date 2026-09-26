@@ -91,5 +91,17 @@ export function createAssetsRouter(): Router {
     res.json(moments);
   });
 
+  router.get("/:assetId/crop-suggestion", (req, res) => {
+    const db = getDb(dbPath);
+    const suggestion = db
+      .prepare("SELECT * FROM crop_suggestions WHERE video_asset_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(req.params.assetId);
+    if (!suggestion) {
+      res.status(404).json({ error: "no crop suggestion found for this asset" });
+      return;
+    }
+    res.json(suggestion);
+  });
+
   return router;
 }
