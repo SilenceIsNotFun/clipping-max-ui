@@ -103,5 +103,38 @@ export function createAssetsRouter(): Router {
     res.json(suggestion);
   });
 
+  router.delete("/:assetId", (req, res) => {
+    const db = getDb(dbPath);
+    const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(req.params.assetId) as
+      | { id: string; file_path: string }
+      | undefined;
+    if (!asset) {
+      res.status(404).json({ error: "asset not found" });
+      return;
+    }
+
+    const usedInSegments = db
+      .prepare(
+        "SELECT COUNT(*) as count FROM segment_assignments WHERE video_asset_id = ? OR secondary_video_asset_id = ?"
+      )
+      .get(req.params.assetId, req.params.assetId) as { count: number };
+    if (usedInSegments.count > 0) {
+      res.status(409).json({ error: "asset is used in a segment assignment; remove it from segments first" });
+      return;
+    }
+
+    db.transaction(() => {
+      db.prepare("DELETE FROM moment_candidates WHERE video_asset_id = ?").run(req.params.assetId);
+      db.prepare("DELETE FROM crop_suggestions WHERE video_asset_id = ?").run(req.params.assetId);
+      db.prepare("DELETE FROM video_assets WHERE id = ?").run(req.params.assetId);
+    })();
+
+    fs.unlink(asset.file_path, () => {
+      // best-effort: an already-missing file on disk shouldn't block the DB delete succeeding
+    });
+
+    res.status(204).send();
+  });
+
   return router;
 }

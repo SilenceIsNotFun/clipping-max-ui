@@ -21,7 +21,7 @@ export default function AssetsPage({ params }: { params: { id: string } }) {
     <main className="flex flex-col gap-6">
       <h1 className="brand-gradient-text text-2xl font-bold sm:text-3xl">Footage & Music</h1>
       <AssetUpload campaignId={params.id} onUploaded={refresh} />
-      <AssetList assets={assets} />
+      <AssetList campaignId={params.id} assets={assets} onDeleted={refresh} />
       <Link
         href={`/campaigns/${params.id}/segments`}
         className="w-fit rounded-xl bg-gradient-to-r from-purple-600 to-pink-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-purple-200 transition hover:opacity-90"

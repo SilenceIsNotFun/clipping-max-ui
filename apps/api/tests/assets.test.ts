@@ -135,4 +135,66 @@ describe("asset routes", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  it("deletes an asset, its file, and its moment/crop-suggestion rows", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+    const filePath = uploadRes.body.file_path;
+    expect(fs.existsSync(filePath)).toBe(true);
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO moment_candidates (id, video_asset_id, timestamp_ms, score, detection_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("moment-1", assetId, 1000, 0.8, "audio_peak", new Date().toISOString());
+    db.prepare(
+      `INSERT INTO crop_suggestions (id, video_asset_id, crop_gameplay_rect, crop_facecam_rect, detection_method, confidence, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("suggestion-1", assetId, null, null, "saliency", 0.4, new Date().toISOString());
+
+    const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/${assetId}`);
+    expect(res.status).toBe(204);
+
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(db.prepare("SELECT * FROM video_assets WHERE id = ?").get(assetId)).toBeUndefined();
+    expect(db.prepare("SELECT * FROM moment_candidates WHERE video_asset_id = ?").all(assetId)).toHaveLength(0);
+    expect(db.prepare("SELECT * FROM crop_suggestions WHERE video_asset_id = ?").all(assetId)).toHaveLength(0);
+
+    const listRes = await request(app).get(`/api/campaigns/${campaignId}/assets`);
+    expect(listRes.body).toHaveLength(0);
+  });
+
+  it("returns 404 when deleting an unknown asset", async () => {
+    const app = createApp();
+    const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/does-not-exist`);
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses to delete an asset that is used in a segment assignment", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO segment_assignments
+       (id, campaign_id, segment_key, video_asset_id, trim_start, trim_end, order_index, layout_template)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("segment-1", campaignId, "hook", assetId, 0, 5, 0, "standard");
+
+    const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/${assetId}`);
+    expect(res.status).toBe(409);
+
+    expect(fs.existsSync(uploadRes.body.file_path)).toBe(true);
+    expect(db.prepare("SELECT * FROM video_assets WHERE id = ?").get(assetId)).toBeDefined();
+  });
 });

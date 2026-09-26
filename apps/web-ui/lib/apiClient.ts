@@ -103,6 +103,16 @@ export async function listAssets(campaignId: string): Promise<VideoAsset[]> {
   return res.json();
 }
 
+export async function deleteAsset(campaignId: string, assetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    if (res.status === 409) throw new Error("This asset is used in a segment — remove it from segments first.");
+    throw new Error(`delete asset failed with status ${res.status}`);
+  }
+}
+
 export async function listMoments(campaignId: string, assetId: string): Promise<MomentCandidate[]> {
   const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}/moments`, {
     cache: "no-store",
