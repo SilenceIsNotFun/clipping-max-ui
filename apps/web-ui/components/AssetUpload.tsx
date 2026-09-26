@@ -15,13 +15,16 @@ export function AssetUpload({
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Capture the form element now -- e.currentTarget can become null once
+    // this handler resumes after the `await` below.
+    const form = e.currentTarget;
     setSubmitting(true);
     setError(null);
     try {
-      const formData = new FormData(e.currentTarget);
+      const formData = new FormData(form);
       const asset = await uploadAsset(campaignId, formData);
       onUploaded(asset);
-      e.currentTarget.reset();
+      form.reset();
     } catch (err) {
       setError((err as Error).message);
     } finally {
