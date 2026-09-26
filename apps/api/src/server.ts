@@ -11,7 +11,13 @@ export function createApp() {
   // Wide-open CORS is acceptable here: this is a single-operator local tool,
   // not a multi-tenant service, and the web-ui talks to the api cross-origin.
   app.use(cors());
-  app.use(express.json());
+  // Default 100kb is too small for the analysis-complete callback on long
+  // source videos: a multi-hour VOD can produce thousands of moment
+  // candidates, well past the default limit (confirmed in practice: a
+  // ~440KB payload was silently rejected with a 413, leaving the asset
+  // stuck at "pending" forever since video-worker never checked the
+  // response status of that callback).
+  app.use(express.json({ limit: "25mb" }));
   app.use("/media", express.static(process.env.VIDEO_ASSETS_DIR ?? "/app/video-assets"));
 
   app.get("/api/health", (_req, res) => {

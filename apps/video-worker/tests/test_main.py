@@ -14,6 +14,19 @@ def test_health():
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_post_callback_logs_and_does_not_raise_when_callback_rejects_payload(caplog):
+    from main import _post_callback
+
+    with patch("main.requests.post") as mock_post:
+        mock_response = mock_post.return_value
+        mock_response.raise_for_status.side_effect = Exception("413 Payload Too Large")
+        with caplog.at_level("ERROR"):
+            _post_callback("http://api:4000/whatever", {"video_asset_id": "asset-1"})
+
+    assert "callback POST" in caplog.text
+    assert "failed" in caplog.text
+
+
 def test_analyze_returns_202_and_calls_callback_with_candidates():
     with patch("main.detect_audio_peaks", return_value=[]), patch(
         "main.detect_scene_changes", return_value=[]

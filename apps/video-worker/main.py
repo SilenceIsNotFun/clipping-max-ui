@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 
@@ -10,6 +11,19 @@ from render import render_video
 from schemas import RenderJobInput
 
 app = FastAPI(title="contentrewardfarm-video-worker")
+logger = logging.getLogger("video-worker")
+
+
+def _post_callback(callback_url: str, payload: dict) -> None:
+    """POST a background-task result back to the api and make failures
+    visible. A silently-rejected callback (e.g. api's body-size limit
+    rejecting a large moment_candidates payload for a long video) previously
+    left the caller stuck at "pending" forever with zero trace of why."""
+    try:
+        response = requests.post(callback_url, json=payload, timeout=30)
+        response.raise_for_status()
+    except Exception:  # noqa: BLE001 - log and move on; the caller has no way to retry this
+        logger.exception("callback POST to %s failed (payload keys: %s)", callback_url, list(payload.keys()))
 
 
 @app.get("/health")
@@ -24,21 +38,16 @@ def _run_analysis(video_asset_id: str, file_path: str, callback_url: str) -> Non
             crop_suggestion = detect_crop_suggestion(file_path)
         except Exception:  # noqa: BLE001 - crop suggestion failure must not fail the whole analysis
             crop_suggestion = None
-        requests.post(
+        _post_callback(
             callback_url,
-            json={
+            {
                 "video_asset_id": video_asset_id,
                 "moment_candidates": [c.model_dump() for c in candidates],
                 "crop_suggestion": crop_suggestion.model_dump() if crop_suggestion else None,
             },
-            timeout=30,
         )
     except Exception as exc:  # noqa: BLE001 - report any failure to the caller
-        requests.post(
-            callback_url,
-            json={"video_asset_id": video_asset_id, "error": str(exc)},
-            timeout=30,
-        )
+        _post_callback(callback_url, {"video_asset_id": video_asset_id, "error": str(exc)})
 
 
 @app.post("/analyze", status_code=202)
@@ -53,17 +62,16 @@ def _run_render(job_id: str, job_input: RenderJobInput, callback_url: str) -> No
     try:
         with tempfile.TemporaryDirectory() as work_dir:
             result = render_video(job_input, work_dir)
-            requests.post(
+            _post_callback(
                 callback_url,
-                json={
+                {
                     "job_id": job_id,
                     "output_path": result.output_path,
                     "caption_words": [w.model_dump() for w in result.caption_words],
                 },
-                timeout=30,
             )
     except Exception as exc:  # noqa: BLE001
-        requests.post(callback_url, json={"job_id": job_id, "error": str(exc)}, timeout=30)
+        _post_callback(callback_url, {"job_id": job_id, "error": str(exc)})
 
 
 @app.post("/render", status_code=202)
