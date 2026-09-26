@@ -57,7 +57,10 @@ def call_ollama(prompt: str, ollama_url: str, model: str) -> str:
     response = requests.post(
         f"{ollama_url}/api/generate",
         json={"model": model, "prompt": prompt, "stream": False},
-        timeout=120,
+        # A 7B model can take well over 2 minutes on CPU-only inference (no
+        # GPU passthrough, or GPU not yet detected by Ollama); keep this
+        # generous rather than failing plan generation on slow hardware.
+        timeout=600,
     )
     response.raise_for_status()
     return response.json()["response"]

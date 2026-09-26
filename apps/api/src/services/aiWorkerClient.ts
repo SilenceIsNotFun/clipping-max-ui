@@ -44,6 +44,9 @@ export async function planCampaign(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
+    // Match ai-worker's own 600s Ollama timeout so this HTTP call doesn't
+    // give up on the ai-worker before it gives up on Ollama.
+    signal: AbortSignal.timeout(610_000),
   });
   if (!res.ok) throw new Error(`ai-worker /plan failed with status ${res.status}`);
   return res.json() as Promise<PlanResultDto>;
