@@ -192,6 +192,53 @@ def test_render_returns_202_and_calls_callback_with_output():
         assert body["output_path"] == "/app/video-assets/exports/job-1.mp4"
 
 
+def test_render_passes_watermark_path_and_rect_through_to_render_job_input():
+    with patch("main.render_video") as mock_render, patch("main.requests.post"):
+        from schemas import CaptionWord, RenderResult
+
+        mock_render.return_value = RenderResult(
+            output_path="/app/video-assets/exports/job-wm-1.mp4",
+            caption_words=[CaptionWord(word="hi", start_ms=0, end_ms=300)],
+        )
+
+        resp = client.post(
+            "/render",
+            json={
+                "job_id": "job-wm-1",
+                "segments": [
+                    {
+                        "file_path": os.path.join(FIXTURES, "short_clip.mp4"),
+                        "trim_start": 0.0,
+                        "trim_end": 1.0,
+                        "order_index": 0,
+                        "script_text": "hi",
+                        "layout_template": "standard",
+                    }
+                ],
+                "tts_voice": "id_ID-voice-medium",
+                "music_path": None,
+                "watermark_path": "/app/video-assets/watermarks/logo.png",
+                "watermark_rect": {"x": 0.05, "y": 0.05, "width": 0.2, "height": 0.1},
+                "callback_url": "http://api:4000/api/internal/render/job-wm-1/complete",
+            },
+        )
+        assert resp.status_code == 202
+
+        for _ in range(20):
+            if mock_render.called:
+                break
+            time.sleep(0.05)
+
+        assert mock_render.called
+        (job_input_arg, _work_dir), _kwargs = mock_render.call_args
+        assert job_input_arg.watermark_path == "/app/video-assets/watermarks/logo.png"
+        assert job_input_arg.watermark_rect is not None
+        assert job_input_arg.watermark_rect.x == 0.05
+        assert job_input_arg.watermark_rect.y == 0.05
+        assert job_input_arg.watermark_rect.width == 0.2
+        assert job_input_arg.watermark_rect.height == 0.1
+
+
 def test_render_reports_error_on_failure():
     with patch("main.render_video", side_effect=RuntimeError("ffmpeg exploded")), patch(
         "main.requests.post"

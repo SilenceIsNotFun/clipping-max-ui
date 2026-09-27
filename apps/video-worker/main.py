@@ -86,6 +86,8 @@ def render(payload: dict, background_tasks: BackgroundTasks) -> dict:
         tts_voice=payload["tts_voice"],
         voices_dir=os.environ.get("PIPER_VOICES_DIR", "/app/voices"),
         music_path=payload.get("music_path"),
+        watermark_path=payload.get("watermark_path"),
+        watermark_rect=payload.get("watermark_rect"),
         output_path=output_path,
     )
     background_tasks.add_task(_run_render, job_id, job_input, payload["callback_url"])
