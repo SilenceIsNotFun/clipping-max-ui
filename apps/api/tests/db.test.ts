@@ -152,4 +152,38 @@ describe("getDb", () => {
     expect(row.caption_style).toBe("energetic");
     migrated.close();
   });
+
+  it("adds watermark_asset_id and watermark_rect columns to render_jobs, migrated on an existing DB", () => {
+    resetDbCacheForTests();
+    const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-render-db-")), "app.db");
+    const oldDb = new Database(oldDbPath);
+    oldDb.exec(`
+      CREATE TABLE render_jobs (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tts_voice TEXT NOT NULL,
+        music_asset_id TEXT,
+        output_path TEXT,
+        error_message TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    oldDb.close();
+
+    const reopened = getDb(oldDbPath);
+    const columns = reopened.prepare("PRAGMA table_info(render_jobs)").all().map((row: any) => row.name);
+    expect(columns).toContain("watermark_asset_id");
+    expect(columns).toContain("watermark_rect");
+    reopened.close();
+  });
+
+  it("creates render_jobs table with watermark_asset_id and watermark_rect columns on fresh DB", () => {
+    const db = getDb(dbPath);
+    const columns = db.prepare("PRAGMA table_info(render_jobs)").all().map((row: any) => row.name);
+    expect(columns).toContain("watermark_asset_id");
+    expect(columns).toContain("watermark_rect");
+    db.close();
+  });
 });
