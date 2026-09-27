@@ -170,6 +170,28 @@ describe("asset routes", () => {
     expect(listRes.body).toHaveLength(0);
   });
 
+  it("deletes an asset that has hook_suggestions rows without a foreign key error", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO hook_suggestions (id, video_asset_id, start_ms, end_ms, title, reasoning, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("hs-delete-1", assetId, 1000, 10000, "Title A", "Reason A", new Date().toISOString());
+
+    const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/${assetId}`);
+    expect(res.status).toBe(204);
+
+    expect(db.prepare("SELECT * FROM video_assets WHERE id = ?").get(assetId)).toBeUndefined();
+    expect(db.prepare("SELECT * FROM hook_suggestions WHERE video_asset_id = ?").all(assetId)).toHaveLength(0);
+  });
+
   it("returns 404 when deleting an unknown asset", async () => {
     const app = createApp();
     const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/does-not-exist`);

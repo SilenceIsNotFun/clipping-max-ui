@@ -138,6 +138,7 @@ export function createAssetsRouter(): Router {
         `${callbackBase}/assets/${req.params.assetId}/hooks-complete`
       );
     } catch (err) {
+      console.error(`find-hooks trigger failed for asset ${req.params.assetId}:`, err);
       db.prepare("UPDATE video_assets SET hook_status = ? WHERE id = ?").run("failed", req.params.assetId);
       res.status(202).json({ status: "failed" });
       return;
@@ -177,6 +178,7 @@ export function createAssetsRouter(): Router {
     db.transaction(() => {
       db.prepare("DELETE FROM moment_candidates WHERE video_asset_id = ?").run(req.params.assetId);
       db.prepare("DELETE FROM crop_suggestions WHERE video_asset_id = ?").run(req.params.assetId);
+      db.prepare("DELETE FROM hook_suggestions WHERE video_asset_id = ?").run(req.params.assetId);
       db.prepare("DELETE FROM video_assets WHERE id = ?").run(req.params.assetId);
     })();
 
