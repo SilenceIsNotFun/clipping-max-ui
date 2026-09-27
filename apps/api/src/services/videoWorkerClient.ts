@@ -47,3 +47,27 @@ export async function submitRender(
   });
   if (!res.ok) throw new Error(`video-worker /render failed with status ${res.status}`);
 }
+
+export async function findHooks(
+  videoWorkerUrl: string,
+  videoAssetId: string,
+  filePath: string,
+  hook: string,
+  strategySummary: string,
+  requirementsChecklist: string[],
+  callbackUrl: string
+): Promise<void> {
+  const res = await fetch(`${videoWorkerUrl}/find-hooks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      video_asset_id: videoAssetId,
+      file_path: filePath,
+      hook,
+      strategy_summary: strategySummary,
+      requirements_checklist: requirementsChecklist,
+      callback_url: callbackUrl,
+    }),
+  });
+  if (!res.ok) throw new Error(`video-worker /find-hooks failed with status ${res.status}`);
+}

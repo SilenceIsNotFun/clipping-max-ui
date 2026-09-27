@@ -1,4 +1,4 @@
-import { analyzeAsset, submitRender } from "../src/services/videoWorkerClient";
+import { analyzeAsset, submitRender, findHooks } from "../src/services/videoWorkerClient";
 
 describe("videoWorkerClient", () => {
   const originalFetch = global.fetch;
@@ -53,5 +53,42 @@ describe("videoWorkerClient", () => {
     await expect(
       analyzeAsset("http://video-worker:8100", "asset-1", "/a.mp4", "http://cb")
     ).rejects.toThrow("video-worker /analyze failed with status 500");
+  });
+
+  it("findHooks posts video/BRD context to /find-hooks", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true }) as any;
+
+    await findHooks(
+      "http://video-worker:8100",
+      "asset-1",
+      "/app/video-assets/clip.mp4",
+      "lead with the prize",
+      "fast cuts",
+      ["30-59 seconds"],
+      "http://api:4000/api/internal/assets/asset-1/hooks-complete"
+    );
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://video-worker:8100/find-hooks",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          video_asset_id: "asset-1",
+          file_path: "/app/video-assets/clip.mp4",
+          hook: "lead with the prize",
+          strategy_summary: "fast cuts",
+          requirements_checklist: ["30-59 seconds"],
+          callback_url: "http://api:4000/api/internal/assets/asset-1/hooks-complete",
+        }),
+      })
+    );
+  });
+
+  it("findHooks throws when video-worker responds with a non-ok status", async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as any;
+
+    await expect(
+      findHooks("http://video-worker:8100", "asset-1", "/path.mp4", "h", "s", [], "http://cb")
+    ).rejects.toThrow("video-worker /find-hooks failed with status 500");
   });
 });
