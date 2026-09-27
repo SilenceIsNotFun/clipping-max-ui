@@ -77,7 +77,7 @@ def _render_single_segment(
     title_overlay_path = None
     if segment.title_text:
         title_overlay_path = os.path.join(work_dir, f"segment_{index}_title.png")
-        render_title_png(segment.title_text, title_overlay_path)
+        render_title_png(segment.title_text, title_overlay_path, segment.title_rect)
 
     segment_filter_input = SegmentInput(
         layout_template=segment.layout_template,

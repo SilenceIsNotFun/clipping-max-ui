@@ -58,6 +58,7 @@ class RenderSegmentInput(BaseModel):
     crop_gameplay_rect: Optional[CropRect] = None
     crop_facecam_rect: Optional[CropRect] = None
     title_text: Optional[str] = None
+    title_rect: Optional[CropRect] = None
     caption_style: Optional[str] = None
 
 

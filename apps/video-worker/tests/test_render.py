@@ -336,3 +336,31 @@ def test_write_ass_handles_empty_caption_words(tmp_path):
     # burn in rather than failing the whole render on an edge case.
     assert "[Events]" in content
     assert content.count("Dialogue:") == 0
+
+
+def test_render_single_segment_passes_title_rect_to_render_title_png():
+    from unittest.mock import patch
+    from schemas import CropRect, RenderSegmentInput
+    from render import _render_single_segment
+
+    fixtures = os.path.join(os.path.dirname(__file__), "fixtures")
+    segment = RenderSegmentInput(
+        file_path=os.path.join(fixtures, "short_clip.mp4"),
+        trim_start=0,
+        trim_end=1,
+        order_index=0,
+        script_text="hello",
+        layout_template="standard",
+        title_text="Hello",
+        title_rect=CropRect(x=0.1, y=0.8, width=0.8, height=0.1),
+    )
+
+    with patch("render.render_title_png") as mock_render_title, patch("render.generate_tts"), patch(
+        "render.run_ffmpeg"
+    ):
+        _render_single_segment(segment, 0, "id_ID-news_tts-medium", "/app/voices", "/tmp")
+
+    mock_render_title.assert_called_once()
+    call_args = mock_render_title.call_args
+    assert call_args[0][0] == "Hello"
+    assert call_args[0][2] == segment.title_rect
