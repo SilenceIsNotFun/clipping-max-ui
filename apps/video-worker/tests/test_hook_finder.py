@@ -128,6 +128,34 @@ def test_find_hooks_waits_for_processing_state():
     fake_client.files.get.assert_called_once()
 
 
+def test_find_hooks_raises_when_file_processing_never_leaves_processing_state():
+    always_processing = _FakeFile(state="PROCESSING")
+
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = always_processing
+    fake_client.files.get.return_value = always_processing
+
+    # Fast-forward the deadline check without actually sleeping: the first
+    # call to time.monotonic() establishes the deadline, every call after
+    # that reports time already past it, so the loop raises on its first
+    # iteration instead of looping (or sleeping) forever.
+    monotonic_values = iter([0, 1000, 1000, 1000, 1000])
+
+    with patch("hook_finder.genai.Client", return_value=fake_client), patch(
+        "hook_finder.time.sleep"
+    ), patch("hook_finder.time.monotonic", side_effect=lambda: next(monotonic_values, 1000)):
+        from hook_finder import find_hooks
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            find_hooks(
+                file_path="/tmp/fake.mp4",
+                hook="hook",
+                strategy_summary="strategy",
+                requirements_checklist=[],
+                api_key="fake-key",
+            )
+
+
 def test_find_hooks_raises_when_gemini_processing_fails():
     fake_uploaded = _FakeFile(state="FAILED")
     fake_uploaded.error = "corrupt video"

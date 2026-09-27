@@ -3,10 +3,20 @@ import re
 import time
 
 from google import genai
+from google.genai import types
 
 from schemas import HookSuggestion
 
 JSON_ARRAY_RE = re.compile(r"```(?:json)?\s*(\[.*?\])\s*```", re.DOTALL)
+
+# Deadline for Gemini's file-processing poll loop. A stuck upload previously
+# had no bound at all, parking a background worker (and hook_status stuck at
+# "pending") forever -- same bug class already fixed once for /analyze.
+FILE_PROCESSING_TIMEOUT_SECONDS = 600
+# Request timeout for the generate_content call itself, passed via
+# GenerateContentConfig.http_options.timeout (milliseconds, per
+# google.genai.types.HttpOptions).
+GENERATE_CONTENT_TIMEOUT_MS = 120_000
 
 PROMPT_TEMPLATE = """You are helping a video clipper find the strongest hook moments in this footage for a brand reward campaign.
 
@@ -70,7 +80,10 @@ def find_hooks(
     client = genai.Client(api_key=api_key)
     uploaded = client.files.upload(file=file_path)
 
+    deadline = time.monotonic() + FILE_PROCESSING_TIMEOUT_SECONDS
     while uploaded.state == "PROCESSING":
+        if time.monotonic() > deadline:
+            raise RuntimeError("Gemini file processing timed out")
         time.sleep(2)
         uploaded = client.files.get(name=uploaded.name)
 
@@ -78,5 +91,11 @@ def find_hooks(
         raise RuntimeError(f"Gemini failed to process uploaded video: {uploaded.error}")
 
     prompt = build_prompt(hook, strategy_summary, requirements_checklist)
-    response = client.models.generate_content(model=model, contents=[uploaded, prompt])
+    response = client.models.generate_content(
+        model=model,
+        contents=[uploaded, prompt],
+        config=types.GenerateContentConfig(
+            http_options=types.HttpOptions(timeout=GENERATE_CONTENT_TIMEOUT_MS)
+        ),
+    )
     return parse_hook_response(response.text)
