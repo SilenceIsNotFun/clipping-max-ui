@@ -1,10 +1,10 @@
-# Watermark Overlay Implementation Plan
+# Watermark Overlay & Title Positioning Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let the operator upload a logo/watermark image, drag a free-form box on a video preview to position and size it, and have it burned into the final rendered video for a chosen render job.
+**Goal:** Let the operator upload a logo/watermark image, drag a free-form box on a video preview to position and size it, and have it burned into the final rendered video for a chosen render job. Also let the operator freely reposition each segment's title text (previously fixed top-center), using the exact same drag-a-box pattern.
 
-**Architecture:** A new `asset_type` value (`"watermark"`) reuses the existing asset upload pipeline with one branch change (skip the ffprobe duration check for images). Placement reuses the existing `CropRect` type and `CropCanvas` component (already built for crop-region selection) rather than inventing a new position picker. The render job stores which watermark and rect were chosen; video-worker adds one more overlay stage to the final ffmpeg mux, applied once to the whole assembled video.
+**Architecture:** A new `asset_type` value (`"watermark"`) reuses the existing asset upload pipeline with one branch change (skip the ffprobe duration check for images). Placement reuses the existing `CropRect` type and `CropCanvas` component (already built for crop-region selection) rather than inventing a new position picker. The render job stores which watermark and rect were chosen; video-worker adds one more overlay stage to the final ffmpeg mux, applied once to the whole assembled video. Title positioning (Tasks 7-9) reuses the identical `CropRect`/`CropCanvas` pattern, scoped per-segment instead of per-render-job, and changes only *where within its own canvas* `render_title_png` draws text — the existing full-canvas overlay mechanism in `layout.py` is untouched.
 
 **Tech Stack:** No new dependencies — same Express/FastAPI/Next.js stack, same ffmpeg `overlay`/`scale` filters already used for title-PNG overlays.
 
@@ -25,6 +25,7 @@
 - **Render submitted with no watermark at all (the common case)** — the existing no-watermark render path must produce byte-for-byte the same ffmpeg command as before this feature shipped; a task's tests must assert the *absence* of the new input/filter stage when `watermark_path` is unset, not just the presence when it is set.
 - **`watermark_rect` at the edge of the frame (e.g. `x: 0.9, width: 0.3` — logo would extend past the right edge)** — ffmpeg's `overlay` filter does not error on this (it just clips), so no crash is expected, but a task should still confirm the geometry computation produces the values ffmpeg actually receives, not silently wrong ones.
 - **`render_jobs` created on a DB that predates this feature** — `watermark_asset_id`/`watermark_rect` must both be nullable additive columns via the same idempotent migration pattern already established, not a fresh `CREATE TABLE`.
+- **A segment with `title_text` set but no `title_rect` (the common case — most existing segments and any operator who doesn't bother repositioning)** — `render_title_png` must fall back to its exact current fixed-position behavior (full-width centering, `TITLE_Y`), not crash or silently render nothing when `rect` is `None`.
 
 ---
 
@@ -33,26 +34,30 @@
 ```
 apps/api/
   src/
-    db.ts                        # MODIFY: render_jobs gains watermark_asset_id, watermark_rect (migration)
-    types.ts                       # MODIFY: VideoAsset.asset_type widened, RenderJob watermark fields
+    db.ts                        # MODIFY: render_jobs gains watermark_asset_id, watermark_rect (migration); segment_assignments gains title_rect (migration)
+    types.ts                       # MODIFY: VideoAsset.asset_type widened, RenderJob watermark fields, SegmentAssignment.title_rect
     routes/
       assets.ts                     # MODIFY: accept "watermark" asset_type, skip ffprobe for images
       render.ts                       # MODIFY: accept + thread watermark_asset_id/watermark_rect
+      segments.ts                     # MODIFY: accept + persist title_rect
     services/
-      videoWorkerClient.ts               # MODIFY: submitRender gains watermarkPath/watermarkRect params
+      videoWorkerClient.ts               # MODIFY: submitRender gains watermarkPath/watermarkRect params; RenderSegmentPayload gains title_rect
   tests/
-    assets.test.ts, db.test.ts, render.test.ts, videoWorkerClient.test.ts   # all MODIFY
+    assets.test.ts, db.test.ts, render.test.ts, videoWorkerClient.test.ts, segments.test.ts   # all MODIFY
 
 apps/video-worker/
-  schemas.py                    # MODIFY: RenderJobInput gains watermark_path, watermark_rect
-  render.py                       # MODIFY: render_video applies watermark overlay when present
+  schemas.py                    # MODIFY: RenderJobInput gains watermark_path/watermark_rect; RenderSegmentInput gains title_rect
+  title_render.py                 # MODIFY: render_title_png accepts an optional positioning rect
+  render.py                         # MODIFY: render_video applies watermark overlay when present; _render_single_segment passes title_rect through
   tests/
     test_render.py                  # MODIFY
+    test_title_render.py              # MODIFY
 
 apps/web-ui/
-  lib/apiClient.ts               # MODIFY: VideoAsset.asset_type widened, submitRenderJob signature
+  lib/apiClient.ts               # MODIFY: VideoAsset.asset_type widened, submitRenderJob signature, SegmentDraft.title_rect
   components/
     AssetUpload.tsx                # MODIFY: "watermark" option in asset_type select
+    SegmentEditor.tsx                # MODIFY: CropCanvas for title-text placement
   app/campaigns/[id]/segments/
     page.tsx                       # MODIFY: watermark dropdown + CropCanvas, wired into handleSubmit
 ```
@@ -987,8 +992,481 @@ git commit -m "feat(web-ui): add watermark upload option and free-form placement
 
 ---
 
+### Task 7: `segment_assignments.title_rect` schema
+
+**Files:**
+- Modify: `apps/api/src/db.ts`
+- Modify: `apps/api/src/types.ts`
+- Modify: `apps/api/tests/db.test.ts`
+
+**Interfaces:**
+- Produces: `segment_assignments.title_rect TEXT` (nullable, JSON-stringified `CropRect`), migrated for pre-existing DBs.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `apps/api/tests/db.test.ts`:
+```typescript
+  it("adds title_rect to segment_assignments, migrated on an existing DB", () => {
+    resetDbCacheForTests();
+    const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-segments-db-")), "app.db");
+    const oldDb = new Database(oldDbPath);
+    oldDb.exec(`
+      CREATE TABLE segment_assignments (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        segment_key TEXT NOT NULL,
+        video_asset_id TEXT NOT NULL,
+        secondary_video_asset_id TEXT,
+        trim_start REAL NOT NULL,
+        trim_end REAL NOT NULL,
+        order_index INTEGER NOT NULL,
+        layout_template TEXT NOT NULL,
+        crop_gameplay_rect TEXT,
+        crop_facecam_rect TEXT,
+        title_text TEXT,
+        caption_style TEXT
+      );
+    `);
+    oldDb.close();
+
+    const reopened = getDb(oldDbPath);
+    const columns = reopened.prepare("PRAGMA table_info(segment_assignments)").all().map((row: any) => row.name);
+    expect(columns).toContain("title_rect");
+    reopened.close();
+  });
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd apps/api && npx jest tests/db.test.ts -t "title_rect"`
+Expected: FAIL — column doesn't exist.
+
+- [ ] **Step 3: Implement**
+
+In `apps/api/src/db.ts`, change the `segment_assignments` table definition's final line from:
+```sql
+  title_text TEXT,
+  caption_style TEXT
+);
+```
+to:
+```sql
+  title_text TEXT,
+  caption_style TEXT,
+  title_rect TEXT
+);
+```
+Add a migration block alongside the existing ones in `getDb`:
+```typescript
+  if (!segmentAssignmentColumns.some((c) => c.name === "title_rect")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN title_rect TEXT");
+  }
+```
+(Reuse the existing `segmentAssignmentColumns` variable already computed for the `caption_style` migration just above it — do not re-query `PRAGMA table_info` a second time.)
+
+In `apps/api/src/types.ts`, add `title_rect: string | null; // JSON-encoded CropRect` to the existing `SegmentAssignment` interface.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd apps/api && npx jest tests/db.test.ts`
+Expected: all tests PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/api/src/db.ts apps/api/src/types.ts apps/api/tests/db.test.ts
+git commit -m "feat(api): add title_rect column to segment_assignments"
+```
+
+---
+
+### Task 8: video-worker — `render_title_png` accepts a positioning rect
+
+**Files:**
+- Modify: `apps/video-worker/title_render.py`
+- Modify: `apps/video-worker/tests/test_title_render.py`
+
+**Interfaces:**
+- Consumes: `CropRect` (already exists in `schemas.py`).
+- Produces: `render_title_png(title_text: str, output_path: str, rect: Optional[CropRect] = None) -> None`. Task 9 depends on this exact signature; the `rect=None` default keeps every existing caller (and existing test) working unchanged.
+
+- [ ] **Step 1: Write failing tests**
+
+Add to `apps/video-worker/tests/test_title_render.py`:
+```python
+from schemas import CropRect
+
+
+def test_render_title_png_without_rect_uses_default_top_position(tmp_path):
+    output_path = str(tmp_path / "title.png")
+    render_title_png("Top Text", output_path)
+
+    img = Image.open(output_path)
+    bbox = img.split()[-1].getbbox()
+    assert bbox is not None
+    assert bbox[1] < 200  # near the default TITLE_Y=80
+
+
+def test_render_title_png_with_rect_positions_text_at_rect_y(tmp_path):
+    output_path = str(tmp_path / "title.png")
+    rect = CropRect(x=0.1, y=0.8, width=0.8, height=0.1)
+    render_title_png("Bottom Text", output_path, rect=rect)
+
+    img = Image.open(output_path)
+    bbox = img.split()[-1].getbbox()
+    assert bbox is not None
+    # y=0.8 of 1920 = 1536 -- well below the default top-of-frame position
+    assert bbox[1] > 1000
+
+
+def test_render_title_png_with_rect_centers_within_rect_width(tmp_path):
+    output_path = str(tmp_path / "title.png")
+    rect = CropRect(x=0.5, y=0.1, width=0.4, height=0.1)  # right half of the frame only
+    render_title_png("Right", output_path, rect=rect)
+
+    img = Image.open(output_path)
+    bbox = img.split()[-1].getbbox()
+    assert bbox is not None
+    # centered within [0.5*1080, 0.9*1080] = [540, 972] -- text must start at or after 540,
+    # not centered across the full 0-1080 canvas (which would start well before 540)
+    assert bbox[0] >= 540
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd apps/video-worker && python -m pytest tests/test_title_render.py -v -k rect`
+Expected: `TypeError: render_title_png() got an unexpected keyword argument 'rect'`.
+
+- [ ] **Step 3: Implement**
+
+Read the current `apps/video-worker/title_render.py` in full first (shown in this plan's spec background — confirm it matches before editing, since line numbers may have shifted since Sub-proyek 3).
+
+Add the import at the top:
+```python
+from typing import Optional
+
+from schemas import CropRect
+```
+Change:
+```python
+def render_title_png(title_text: str, output_path: str) -> None:
+    """Renders title_text onto a transparent 1080x1920 PNG canvas: white fill,
+    black stroke, drop shadow, horizontally centered near the top. Unlike
+    ffmpeg's drawtext filter, this has no filter-graph escaping concerns --
+    apostrophes, colons, percent signs, etc. are handled natively by Pillow."""
+    img = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font = _load_font()
+
+    bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=STROKE_WIDTH)
+    text_w = bbox[2] - bbox[0]
+    x = (CANVAS_W - text_w) / 2 - bbox[0]
+    y = TITLE_Y
+```
+to:
+```python
+def render_title_png(title_text: str, output_path: str, rect: Optional[CropRect] = None) -> None:
+    """Renders title_text onto a transparent 1080x1920 PNG canvas: white fill,
+    black stroke, drop shadow. Unlike ffmpeg's drawtext filter, this has no
+    filter-graph escaping concerns -- apostrophes, colons, percent signs,
+    etc. are handled natively by Pillow.
+
+    When `rect` is given, the text is horizontally centered within
+    [rect.x*CANVAS_W, (rect.x+rect.width)*CANVAS_W] and vertically anchored
+    at rect.y*CANVAS_H, instead of the default full-width-centered/fixed-Y
+    position. rect.height is unused (title text is single-line)."""
+    img = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font = _load_font()
+
+    bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=STROKE_WIDTH)
+    text_w = bbox[2] - bbox[0]
+
+    if rect is not None:
+        region_x0 = rect.x * CANVAS_W
+        region_w = rect.width * CANVAS_W
+        x = region_x0 + (region_w - text_w) / 2 - bbox[0]
+        y = rect.y * CANVAS_H
+    else:
+        x = (CANVAS_W - text_w) / 2 - bbox[0]
+        y = TITLE_Y
+```
+(The rest of the function — the two `draw.text(...)` calls and `img.save(...)` — stays exactly as it is; only the signature, docstring, and the `x`/`y` computation change.)
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd apps/video-worker && python -m pytest tests/test_title_render.py -v`
+Expected: all 6 tests PASS (3 pre-existing + 3 new).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/video-worker/title_render.py apps/video-worker/tests/test_title_render.py
+git commit -m "feat(video-worker): let render_title_png position text via an optional rect"
+```
+
+---
+
+### Task 9: Thread `title_rect` through video-worker and api
+
+**Files:**
+- Modify: `apps/video-worker/schemas.py`
+- Modify: `apps/video-worker/render.py`
+- Modify: `apps/video-worker/tests/test_render.py`
+- Modify: `apps/api/src/routes/segments.ts`
+- Modify: `apps/api/tests/segments.test.ts`
+- Modify: `apps/api/src/routes/render.ts`
+- Modify: `apps/api/tests/render.test.ts`
+- Modify: `apps/api/src/services/videoWorkerClient.ts`
+- Modify: `apps/api/tests/videoWorkerClient.test.ts`
+
+**Interfaces:**
+- Consumes: `render_title_png`'s `rect` parameter (Task 8), `title_rect` DB column (Task 7).
+- Produces: `RenderSegmentInput.title_rect: Optional[CropRect] = None` (video-worker wire schema); `_render_single_segment` passes `segment.title_rect` into `render_title_png`; `segments.ts` persists `title_rect` from the PUT body; `render.ts`/`videoWorkerClient.ts` carry it from the DB into the video-worker `/render` payload.
+
+- [ ] **Step 1: video-worker schema**
+
+In `apps/video-worker/schemas.py`, add `title_rect: Optional[CropRect] = None` to `RenderSegmentInput`, right after the existing `title_text: Optional[str] = None` field.
+
+- [ ] **Step 2: Write failing test for the render.py wiring**
+
+Read `apps/video-worker/render.py`'s current `_render_single_segment` function in full first (shown in this plan's Task 3 discussion — confirm the exact current lines before editing). Add to `apps/video-worker/tests/test_render.py`:
+```python
+def test_render_single_segment_passes_title_rect_to_render_title_png():
+    from unittest.mock import patch
+    from schemas import CropRect, RenderSegmentInput
+    from render import _render_single_segment
+
+    fixtures = os.path.join(os.path.dirname(__file__), "fixtures")
+    segment = RenderSegmentInput(
+        file_path=os.path.join(fixtures, "short_clip.mp4"),
+        trim_start=0,
+        trim_end=1,
+        order_index=0,
+        script_text="hello",
+        layout_template="standard",
+        title_text="Hello",
+        title_rect=CropRect(x=0.1, y=0.8, width=0.8, height=0.1),
+    )
+
+    with patch("render.render_title_png") as mock_render_title, patch("render.generate_tts"), patch(
+        "render.run_ffmpeg"
+    ):
+        _render_single_segment(segment, 0, "id_ID-news_tts-medium", "/app/voices", "/tmp")
+
+    mock_render_title.assert_called_once()
+    call_args = mock_render_title.call_args
+    assert call_args[0][0] == "Hello"
+    assert call_args[0][2] == segment.title_rect
+```
+(Check the exact current parameter order/names `render_title_png` is called with inside `_render_single_segment` before writing this assertion — the brief above assumes it's called positionally as `render_title_png(segment.title_text, title_overlay_path, segment.title_rect)`; adjust `call_args[0][N]`'s index if the actual call passes `rect=` as a keyword instead, in which case assert `call_args.kwargs["rect"] == segment.title_rect` instead.)
+
+- [ ] **Step 3: Run test to verify it fails**
+
+Run: `cd apps/video-worker && python -m pytest tests/test_render.py -v -k title_rect`
+Expected: FAIL — `render_title_png` mock not called with the rect (still called with only 2 args).
+
+- [ ] **Step 4: Implement**
+
+In `apps/video-worker/render.py`, find:
+```python
+    title_overlay_path = None
+    if segment.title_text:
+        title_overlay_path = os.path.join(work_dir, f"segment_{index}_title.png")
+        render_title_png(segment.title_text, title_overlay_path)
+```
+and change to:
+```python
+    title_overlay_path = None
+    if segment.title_text:
+        title_overlay_path = os.path.join(work_dir, f"segment_{index}_title.png")
+        render_title_png(segment.title_text, title_overlay_path, segment.title_rect)
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `cd apps/video-worker && python -m pytest tests/test_render.py -v`
+Expected: all tests PASS.
+
+- [ ] **Step 6: Commit the video-worker half**
+
+```bash
+git add apps/video-worker/schemas.py apps/video-worker/render.py apps/video-worker/tests/test_render.py
+git commit -m "feat(video-worker): thread title_rect from RenderSegmentInput to render_title_png"
+```
+
+- [ ] **Step 7: Write failing tests for the api half**
+
+Add `title_rect?: Record<string, number>;` to the `SegmentPayload` interface in `apps/api/src/routes/segments.ts` mentally before writing the test (the test below exercises the behavior this implies). Add to `apps/api/tests/segments.test.ts` (find the existing test that saves segment assignments and posts a full segment payload, matching its exact request-body/assertion conventions):
+```typescript
+  it("persists title_rect when provided", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          {
+            segment_key: "hook",
+            video_asset_id: assetId,
+            trim_start: 0,
+            trim_end: 5,
+            order_index: 0,
+            layout_template: "standard",
+            title_text: "Hello",
+            title_rect: { x: 0.1, y: 0.8, width: 0.8, height: 0.1 },
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const row = db.prepare("SELECT * FROM segment_assignments WHERE campaign_id = ?").get(campaignId) as any;
+    expect(JSON.parse(row.title_rect)).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
+  });
+```
+(Match the file's existing `beforeEach`-established `campaignId`/`assetId`/`dbPath` variable names and plan-seeding setup — read the file first to confirm; this brief assumes the same names its other passing tests already use.)
+
+- [ ] **Step 8: Run test to verify it fails**
+
+Run: `cd apps/api && npx jest tests/segments.test.ts -t "title_rect"`
+Expected: FAIL — `title_rect` never inserted (column exists from Task 7, but nothing writes to it yet).
+
+- [ ] **Step 9: Implement the api segments.ts change**
+
+Add `title_rect?: Record<string, number>;` to `SegmentPayload` in `apps/api/src/routes/segments.ts`. Change the INSERT statement:
+```typescript
+    const insert = db.prepare(
+      `INSERT INTO segment_assignments
+       (id, campaign_id, segment_key, video_asset_id, secondary_video_asset_id, trim_start, trim_end, order_index, layout_template, crop_gameplay_rect, crop_facecam_rect, title_text, caption_style)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+```
+to:
+```typescript
+    const insert = db.prepare(
+      `INSERT INTO segment_assignments
+       (id, campaign_id, segment_key, video_asset_id, secondary_video_asset_id, trim_start, trim_end, order_index, layout_template, crop_gameplay_rect, crop_facecam_rect, title_text, caption_style, title_rect)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+```
+and add `s.title_rect ? JSON.stringify(s.title_rect) : null` as a new final argument to the `insert.run(...)` call.
+
+- [ ] **Step 10: Run test to verify it passes**
+
+Run: `cd apps/api && npx jest tests/segments.test.ts`
+Expected: all tests PASS.
+
+- [ ] **Step 11: Write failing tests for render.ts / videoWorkerClient.ts**
+
+Read `apps/api/src/routes/render.ts`'s `segmentPayloads` mapping and `apps/api/src/services/videoWorkerClient.ts`'s `RenderSegmentPayload` interface in full first (both shown earlier in this plan's Task 4 discussion — reconfirm exact current state, since Task 4 of this same plan may have already been applied by the time this task starts). Add to `apps/api/tests/render.test.ts`:
+```typescript
+  it("includes title_rect in the segment payload sent to submitRender", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const db = getDb(dbPath);
+    db.prepare("UPDATE segment_assignments SET title_rect = ? WHERE campaign_id = ?").run(
+      JSON.stringify({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 }),
+      campaignId
+    );
+
+    const app = createApp();
+    await request(app).post(`/api/campaigns/${campaignId}/render`).send({ tts_voice: "id_ID-news_tts-medium" });
+
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    const segmentPayloads = callArgs[2];
+    expect(segmentPayloads[0].title_rect).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
+  });
+```
+(This assumes the existing `beforeEach` in `render.test.ts` already seeds one `segment_assignments` row for `campaignId` with a real `video_asset_id` — read the file first to confirm and reuse that exact setup, per the file's own established convention from its other passing tests.)
+
+- [ ] **Step 12: Run test to verify it fails**
+
+Run: `cd apps/api && npx jest tests/render.test.ts -t "title_rect"`
+Expected: FAIL — `title_rect` not present in the mapped payload.
+
+- [ ] **Step 13: Implement**
+
+Add `title_rect?: Record<string, number>;` to `RenderSegmentPayload` in `apps/api/src/services/videoWorkerClient.ts`. In `apps/api/src/routes/render.ts`'s `segmentPayloads` map, add a line:
+```typescript
+      title_rect: s.title_rect ? JSON.parse(s.title_rect) : undefined,
+```
+(alongside the existing `title_text: s.title_text ?? undefined,` and `caption_style: s.caption_style ?? undefined,` lines in that same object literal).
+
+- [ ] **Step 14: Run tests to verify they pass**
+
+Run: `cd apps/api && npx jest tests/render.test.ts`
+Expected: all tests PASS.
+
+- [ ] **Step 15: Commit the api half**
+
+```bash
+git add apps/api/src/routes/segments.ts apps/api/tests/segments.test.ts apps/api/src/routes/render.ts apps/api/tests/render.test.ts apps/api/src/services/videoWorkerClient.ts
+git commit -m "feat(api): thread title_rect from segment assignment through to render submission"
+```
+
+---
+
+### Task 10: web-ui — title placement UI
+
+**Files:**
+- Modify: `apps/web-ui/lib/apiClient.ts`
+- Modify: `apps/web-ui/components/SegmentEditor.tsx`
+
+**Interfaces:**
+- Consumes: `CropCanvas`, `CropRect` (existing).
+- Produces: `SegmentDraft.title_rect?: CropRect`; a second `CropCanvas` in `SegmentEditor`, shown whenever `draft.title_text` is non-empty, writing into `draft.title_rect`.
+
+- [ ] **Step 1: Add the field to `apiClient.ts`**
+
+In `apps/web-ui/lib/apiClient.ts`, add `title_rect?: CropRect;` to the existing `SegmentDraft` interface, alongside `title_text?: string;`.
+
+- [ ] **Step 2: Add the UI**
+
+In `apps/web-ui/components/SegmentEditor.tsx`, find the existing title-text `<input>`:
+```tsx
+        <input
+          type="text"
+          placeholder="Title text (optional)"
+          value={draft.title_text ?? ""}
+          onChange={(e) => onChange({ ...draft, title_text: e.target.value })}
+          className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+        />
+```
+Leave it exactly as it is, but add a `CropCanvas` right after the `</div>` that closes the `grid gap-3 sm:grid-cols-2` block containing it (i.e., after the title-text input + caption-style select pair), gated on `draft.title_text` being non-empty and `asset` being available:
+```tsx
+      {draft.title_text && asset && (
+        <div className="rounded-xl bg-slate-50 p-3">
+          <CropCanvas
+            imageSrc={mediaUrl(asset.file_path)}
+            label="Title placement"
+            initialRect={draft.title_rect ?? null}
+            onChange={(rect: CropRect) => onChange({ ...draft, title_rect: rect })}
+          />
+        </div>
+      )}
+```
+(`CropCanvas` is already imported at the top of this file from Sub-proyek 3; `mediaUrl` and `asset` are already defined earlier in this same component — no new imports needed beyond what's already there.)
+
+- [ ] **Step 3: Verify TypeScript compiles**
+
+Run: `cd apps/web-ui && npm run build`
+Expected: compiles cleanly.
+
+- [ ] **Step 4: Manual verification**
+
+No component test framework in this project. If a dev server is reachable: type a title, confirm the placement `CropCanvas` appears, drag a box, save segments, and confirm (via the `segment_assignments` table or a `GET` on the campaign) that `title_rect` persisted. If a live check isn't possible in this environment, say so honestly rather than claiming it was verified.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/web-ui/lib/apiClient.ts apps/web-ui/components/SegmentEditor.tsx
+git commit -m "feat(web-ui): add free-form title text placement to segment editor"
+```
+
+---
+
 ## Self-Review Notes
 
-- **Spec coverage:** free-form placement via `CropCanvas` reuse (not a 4-corner picker) ✓ Task 6; per-render-job (not per-campaign) watermark+rect ✓ Task 2's schema is on `render_jobs`, not `campaigns`/`video_assets`, and Task 6's state lives in the segments-page component, reset per session; applied once to the whole final video, not per-segment ✓ Task 3 modifies only the final mux step, `_render_single_segment`/`layout.py` untouched; PNG/JPEG-only validation ✓ Task 1; no-watermark path byte-for-byte unchanged ✓ Task 3's Review-Focus-driven test asserts this explicitly.
-- **Placeholder scan:** no TBD/TODO; every step has complete code or an exact command. Task 3's `len(args) // 2` false start is deliberately shown and then corrected in the same step with the reasoning spelled out, rather than silently presenting only the correct version — an implementer reading quickly could otherwise miss why explicit `input_count` tracking matters.
-- **Type consistency:** `watermark_path`/`watermark_rect` (snake_case, matching this project's existing wire-format convention) are identical across Task 3 (Python `RenderJobInput`), Task 4 (Express route body + `submitRender`'s JSON payload), Task 5/6 (web-ui). `submitRender`'s new parameter order (`watermarkPath` then `watermarkRect`, both after `musicPath`, before `callbackUrl`) matches exactly between Task 4's implementation and Task 4's own test assertions on `callArgs[5]`/`callArgs[6]`.
+- **Spec coverage — watermark:** free-form placement via `CropCanvas` reuse (not a 4-corner picker) ✓ Task 6; per-render-job (not per-campaign) watermark+rect ✓ Task 2's schema is on `render_jobs`, not `campaigns`/`video_assets`, and Task 6's state lives in the segments-page component, reset per session; applied once to the whole final video, not per-segment ✓ Task 3 modifies only the final mux step, `_render_single_segment`/`layout.py` untouched; PNG/JPEG-only validation ✓ Task 1; no-watermark path byte-for-byte unchanged ✓ Task 3's Review-Focus-driven test asserts this explicitly.
+- **Spec coverage — title positioning:** per-segment (not per-render-job/per-campaign) ✓ Task 7's column is on `segment_assignments`, not `render_jobs`; free-form drag via `CropCanvas` reuse ✓ Task 10; `layout.py`'s overlay mechanism untouched, only `render_title_png`'s internal draw position changes ✓ Task 8 modifies only `title_render.py`; falls back to exact current fixed-position behavior when no rect is given (the Review-Focus item added for this addendum) ✓ Task 8's own first test (`test_render_title_png_without_rect_uses_default_top_position`) pins this explicitly.
+- **Placeholder scan:** no TBD/TODO; every step has complete code or an exact command.
+- **Type consistency:** `watermark_path`/`watermark_rect` (snake_case, matching this project's existing wire-format convention) are identical across Task 3 (Python `RenderJobInput`), Task 4 (Express route body + `submitRender`'s JSON payload), Task 5/6 (web-ui). `submitRender`'s new parameter order (`watermarkPath` then `watermarkRect`, both after `musicPath`, before `callbackUrl`) matches exactly between Task 4's implementation and Task 4's own test assertions on `callArgs[5]`/`callArgs[6]`. `title_rect` is identical across Task 7 (DB column + TS type), Task 8 (Python `render_title_png`'s `rect` parameter — note the DB/wire field is named `title_rect` but the function parameter is named `rect`; Task 9's call site (`render_title_png(segment.title_text, title_overlay_path, segment.title_rect)`) is the exact point where the field name maps onto the parameter name, and no other task needs to know the parameter is called `rect` internally), Task 9 (`RenderSegmentInput.title_rect`, Express route + `RenderSegmentPayload.title_rect`), Task 10 (web-ui `SegmentDraft.title_rect`).
