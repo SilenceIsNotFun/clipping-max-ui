@@ -77,6 +77,7 @@ export interface VideoAsset {
   asset_type: "footage" | "music";
   duration_seconds: number;
   analysis_status: "pending" | "done" | "failed";
+  hook_status: "none" | "pending" | "done" | "failed";
   created_at: string;
 }
 
@@ -174,6 +175,37 @@ export async function getCropSuggestion(campaignId: string, assetId: string): Pr
   });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`get crop suggestion failed with status ${res.status}`);
+  return res.json();
+}
+
+export interface HookSuggestion {
+  id: string;
+  video_asset_id: string;
+  start_ms: number;
+  end_ms: number;
+  title: string;
+  reasoning: string;
+  created_at: string;
+}
+
+export async function findHooks(campaignId: string, assetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}/find-hooks`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    if (res.status === 400) {
+      const body = await res.json();
+      throw new Error(body.error ?? "find hooks failed: campaign has no plan yet");
+    }
+    throw new Error(`find hooks failed with status ${res.status}`);
+  }
+}
+
+export async function getHookSuggestions(campaignId: string, assetId: string): Promise<HookSuggestion[]> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}/hook-suggestions`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`get hook suggestions failed with status ${res.status}`);
   return res.json();
 }
 
