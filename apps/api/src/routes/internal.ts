@@ -62,6 +62,38 @@ export function createInternalRouter(): Router {
     res.json({ status: "recorded" });
   });
 
+  router.post("/assets/:assetId/hooks-complete", (req, res) => {
+    const db = getDb(dbPath);
+    const { assetId } = req.params;
+    const now = new Date().toISOString();
+
+    if (req.body.error) {
+      db.prepare("UPDATE video_assets SET hook_status = ? WHERE id = ?").run("failed", assetId);
+      res.json({ status: "recorded" });
+      return;
+    }
+
+    const suggestions = (req.body.hook_suggestions ?? []) as Array<{
+      start_ms: number;
+      end_ms: number;
+      title: string;
+      reasoning: string;
+    }>;
+    const insert = db.prepare(
+      `INSERT INTO hook_suggestions (id, video_asset_id, start_ms, end_ms, title, reasoning, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    const insertMany = db.transaction((rows: typeof suggestions) => {
+      for (const s of rows) {
+        insert.run(randomUUID(), assetId, s.start_ms, s.end_ms, s.title, s.reasoning, now);
+      }
+    });
+    insertMany(suggestions);
+
+    db.prepare("UPDATE video_assets SET hook_status = ? WHERE id = ?").run("done", assetId);
+    res.json({ status: "recorded" });
+  });
+
   router.post("/render/:jobId/complete", (req, res) => {
     const db = getDb(dbPath);
     const { jobId } = req.params;

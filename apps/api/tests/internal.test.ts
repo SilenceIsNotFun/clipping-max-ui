@@ -147,3 +147,81 @@ describe("internal render-complete callback", () => {
     expect(job.error_message).toBe("ffmpeg exploded");
   });
 });
+
+describe("internal hooks-complete callback", () => {
+  let dbPath: string;
+  let assetId: string;
+
+  beforeEach(() => {
+    resetDbCacheForTests();
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "data-"));
+    dbPath = path.join(dataDir, "app.db");
+    process.env.DB_PATH = dbPath;
+    process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-"));
+    process.env.DATA_DIR = dataDir;
+    process.env.VIDEO_ASSETS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "video-assets-"));
+
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO campaigns (id, title, status, source_file_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("campaign-1", "Test", "planned", "/x.pdf", now, now);
+    assetId = "asset-1";
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(assetId, "campaign-1", "/video-assets/a.mp4", "footage", 2.0, "pending", now);
+  });
+
+  it("stores hook suggestions and marks hook_status done", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/internal/assets/${assetId}/hooks-complete`)
+      .send({
+        video_asset_id: assetId,
+        hook_suggestions: [
+          { start_ms: 1000, end_ms: 10000, title: "T1", reasoning: "R1" },
+          { start_ms: 20000, end_ms: 35000, title: "T2", reasoning: "R2" },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const rows = db.prepare("SELECT * FROM hook_suggestions WHERE video_asset_id = ?").all(assetId) as any[];
+    expect(rows).toHaveLength(2);
+    expect(rows[0].title).toBe("T1");
+
+    const asset = db.prepare("SELECT hook_status FROM video_assets WHERE id = ?").get(assetId) as any;
+    expect(asset.hook_status).toBe("done");
+  });
+
+  it("marks hook_status failed and stores no rows when video-worker reports an error", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/internal/assets/${assetId}/hooks-complete`)
+      .send({ video_asset_id: assetId, error: "GEMINI_API_KEY not set" });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const rows = db.prepare("SELECT * FROM hook_suggestions WHERE video_asset_id = ?").all(assetId);
+    expect(rows).toHaveLength(0);
+
+    const asset = db.prepare("SELECT hook_status FROM video_assets WHERE id = ?").get(assetId) as any;
+    expect(asset.hook_status).toBe("failed");
+  });
+
+  it("appends to existing hook_suggestions rather than replacing them on a second run", async () => {
+    const app = createApp();
+    await request(app)
+      .post(`/api/internal/assets/${assetId}/hooks-complete`)
+      .send({ video_asset_id: assetId, hook_suggestions: [{ start_ms: 0, end_ms: 5000, title: "First run", reasoning: "r" }] });
+    await request(app)
+      .post(`/api/internal/assets/${assetId}/hooks-complete`)
+      .send({ video_asset_id: assetId, hook_suggestions: [{ start_ms: 0, end_ms: 5000, title: "Second run", reasoning: "r" }] });
+
+    const db = getDb(dbPath);
+    const rows = db.prepare("SELECT * FROM hook_suggestions WHERE video_asset_id = ?").all(assetId) as any[];
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r: any) => r.title).sort()).toEqual(["First run", "Second run"]);
+  });
+});
