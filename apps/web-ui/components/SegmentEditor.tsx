@@ -167,6 +167,17 @@ export function SegmentEditor({
           ))}
         </select>
       </div>
+
+      {draft.title_text && asset && (
+        <div className="rounded-xl bg-slate-50 p-3">
+          <CropCanvas
+            imageSrc={mediaUrl(asset.file_path)}
+            label="Title placement"
+            initialRect={draft.title_rect ?? null}
+            onChange={(rect: CropRect) => onChange({ ...draft, title_rect: rect })}
+          />
+        </div>
+      )}
     </fieldset>
   );
 }

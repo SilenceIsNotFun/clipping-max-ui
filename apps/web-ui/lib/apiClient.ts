@@ -145,6 +145,7 @@ export interface SegmentDraft {
   crop_gameplay_rect?: CropRect;
   crop_facecam_rect?: CropRect;
   title_text?: string;
+  title_rect?: CropRect;
   caption_style?: string;
 }
 
