@@ -68,6 +68,7 @@ export function createInternalRouter(): Router {
     const now = new Date().toISOString();
 
     if (req.body.error) {
+      console.error(`find-hooks failed for asset ${assetId}:`, req.body.error);
       db.prepare("UPDATE video_assets SET hook_status = ? WHERE id = ?").run("failed", assetId);
       res.json({ status: "recorded" });
       return;

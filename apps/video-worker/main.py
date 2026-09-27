@@ -112,6 +112,7 @@ def _run_find_hooks(
             },
         )
     except Exception as exc:  # noqa: BLE001 - report any failure to the caller
+        logger.exception("find-hooks failed for video_asset_id=%s", video_asset_id)
         _post_callback(callback_url, {"video_asset_id": video_asset_id, "error": str(exc)})
 
 
