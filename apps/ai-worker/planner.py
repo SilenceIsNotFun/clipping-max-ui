@@ -23,7 +23,23 @@ Reward: {reward}
 Constraints/risks: {constraints}
 
 Respond with ONLY a JSON object in a ```json code block with these keys:
-strategy_summary (string), requirements_checklist (array of strings),
+
+strategy_summary (string): a short creative-strategy summary for this campaign.
+
+requirements_checklist (array of strings): every concrete, actionable rule
+stated in the BRD that a clipper/editor must follow to avoid rejection.
+Extract these literally from the BRD text -- do not summarize into vague
+marketing language. Include, whenever the BRD mentions them: exact video
+length/duration, aspect ratio or format, which platforms to post on,
+approved content/footage sources, required editing style (e.g. talking-head
+only, B-roll placement, framing/zoom rules), required fonts/subtitle rules,
+audio/volume instructions, tagging/mention rules, caption or pinned-comment
+text to use, bio/link requirements, account setup rules (dedicated account,
+handle naming, age restriction), warm-up periods before posting, and any
+explicitly prohibited actions (e.g. no AI-generated clips, no fake
+engagement). Each item should be one specific, checkable rule -- prefer
+many short items over one long paragraph.
+
 content_plan (object with hook, script, assets, schedule),
 opportunity_score (integer 0-100).
 """
