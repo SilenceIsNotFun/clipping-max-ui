@@ -44,6 +44,7 @@ export function AssetUpload({
       >
         <option value="footage">🎬 Footage</option>
         <option value="music">🎵 Music</option>
+        <option value="watermark">💧 Watermark</option>
       </select>
       <input
         type="file"
