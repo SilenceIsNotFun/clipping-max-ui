@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS segment_assignments (
   crop_gameplay_rect TEXT,
   crop_facecam_rect TEXT,
   title_text TEXT,
-  caption_style TEXT
+  caption_style TEXT,
+  title_rect TEXT
 );
 
 CREATE TABLE IF NOT EXISTS render_jobs (
@@ -127,6 +128,9 @@ export function getDb(dbPath: string): Database.Database {
   const segmentAssignmentColumns = db.prepare("PRAGMA table_info(segment_assignments)").all() as { name: string }[];
   if (!segmentAssignmentColumns.some((c) => c.name === "caption_style")) {
     db.exec("ALTER TABLE segment_assignments ADD COLUMN caption_style TEXT");
+  }
+  if (!segmentAssignmentColumns.some((c) => c.name === "title_rect")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN title_rect TEXT");
   }
 
   // Migration path for DBs created before watermark_asset_id and watermark_rect were added to render_jobs.

@@ -186,4 +186,33 @@ describe("getDb", () => {
     expect(columns).toContain("watermark_rect");
     db.close();
   });
+
+  it("adds title_rect to segment_assignments, migrated on an existing DB", () => {
+    resetDbCacheForTests();
+    const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-segments-db-")), "app.db");
+    const oldDb = new Database(oldDbPath);
+    oldDb.exec(`
+      CREATE TABLE segment_assignments (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        segment_key TEXT NOT NULL,
+        video_asset_id TEXT NOT NULL,
+        secondary_video_asset_id TEXT,
+        trim_start REAL NOT NULL,
+        trim_end REAL NOT NULL,
+        order_index INTEGER NOT NULL,
+        layout_template TEXT NOT NULL,
+        crop_gameplay_rect TEXT,
+        crop_facecam_rect TEXT,
+        title_text TEXT,
+        caption_style TEXT
+      );
+    `);
+    oldDb.close();
+
+    const reopened = getDb(oldDbPath);
+    const columns = reopened.prepare("PRAGMA table_info(segment_assignments)").all().map((row: any) => row.name);
+    expect(columns).toContain("title_rect");
+    reopened.close();
+  });
 });

@@ -100,6 +100,7 @@ export interface SegmentAssignment {
   crop_facecam_rect: string | null; // JSON-encoded CropRect
   title_text: string | null;
   caption_style: string | null;
+  title_rect: string | null; // JSON-encoded CropRect
 }
 
 export type RenderJobStatus = "queued" | "rendering" | "ready_for_preview" | "final" | "failed";
