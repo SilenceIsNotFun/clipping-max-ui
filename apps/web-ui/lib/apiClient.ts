@@ -74,7 +74,7 @@ export interface VideoAsset {
   id: string;
   campaign_id: string;
   file_path: string;
-  asset_type: "footage" | "music";
+  asset_type: "footage" | "music" | "watermark";
   duration_seconds: number;
   analysis_status: "pending" | "done" | "failed";
   created_at: string;
@@ -180,12 +180,19 @@ export async function getCropSuggestion(campaignId: string, assetId: string): Pr
 export async function submitRenderJob(
   campaignId: string,
   ttsVoice: string,
-  musicAssetId?: string
+  musicAssetId?: string,
+  watermarkAssetId?: string,
+  watermarkRect?: CropRect
 ): Promise<{ job_id: string; status: string }> {
   const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/render`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tts_voice: ttsVoice, music_asset_id: musicAssetId }),
+    body: JSON.stringify({
+      tts_voice: ttsVoice,
+      music_asset_id: musicAssetId,
+      watermark_asset_id: watermarkAssetId,
+      watermark_rect: watermarkRect,
+    }),
   });
   if (!res.ok) throw new Error(`render submit failed with status ${res.status}`);
   return res.json();
