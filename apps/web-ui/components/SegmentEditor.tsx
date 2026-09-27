@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CropRect,
   CropSuggestion,
@@ -52,6 +52,25 @@ export function SegmentEditor({
   const [hookError, setHookError] = useState<string | null>(null);
   const asset = assets.find((a) => a.id === draft.video_asset_id);
 
+  const hookPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hookPollAttemptsRef = useRef(0);
+
+  const HOOK_POLL_INTERVAL_MS = 5000;
+  const HOOK_POLL_MAX_ATTEMPTS = 60; // ~5 minutes, matching Gemini's realistic turnaround
+
+  function stopHookPolling() {
+    if (hookPollIntervalRef.current !== null) {
+      clearInterval(hookPollIntervalRef.current);
+      hookPollIntervalRef.current = null;
+    }
+  }
+
+  // Stop polling (and never apply results to the wrong segment) whenever the
+  // selected asset changes, and on unmount.
+  useEffect(() => {
+    return () => stopHookPolling();
+  }, [campaignId, draft.video_asset_id]);
+
   useEffect(() => {
     if (draft.video_asset_id) {
       getHookSuggestions(campaignId, draft.video_asset_id).then(setHookSuggestions);
@@ -62,15 +81,46 @@ export function SegmentEditor({
 
   async function handleFindHooks() {
     if (!draft.video_asset_id) return;
+    const assetId = draft.video_asset_id;
+    const countBeforeRun = hookSuggestions.length;
     setFindingHooks(true);
     setHookError(null);
     try {
-      await findHooks(campaignId, draft.video_asset_id);
+      await findHooks(campaignId, assetId);
     } catch (err) {
       setHookError((err as Error).message);
-    } finally {
       setFindingHooks(false);
+      return;
     }
+
+    // The 202 above only confirms the run was triggered -- Gemini's actual
+    // result arrives seconds to minutes later via the hooks-complete
+    // callback. Poll for it instead of flipping findingHooks back off
+    // immediately, which previously left the operator staring at a button
+    // that reset with no suggestions ever appearing short of a full page
+    // reload (which would also destroy any unsaved segment edits).
+    stopHookPolling();
+    hookPollAttemptsRef.current = 0;
+    hookPollIntervalRef.current = setInterval(async () => {
+      hookPollAttemptsRef.current += 1;
+      try {
+        const latest = await getHookSuggestions(campaignId, assetId);
+        if (latest.length > countBeforeRun) {
+          setHookSuggestions(latest);
+          stopHookPolling();
+          setFindingHooks(false);
+          return;
+        }
+      } catch {
+        // transient poll failure -- keep trying until the attempt cap
+      }
+
+      if (hookPollAttemptsRef.current >= HOOK_POLL_MAX_ATTEMPTS) {
+        stopHookPolling();
+        setFindingHooks(false);
+        setHookError("Still processing — check back in a bit");
+      }
+    }, HOOK_POLL_INTERVAL_MS);
   }
 
   function applyHookSuggestion(suggestion: HookSuggestion) {
