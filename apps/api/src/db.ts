@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS video_assets (
   asset_type TEXT NOT NULL,
   duration_seconds REAL NOT NULL,
   analysis_status TEXT NOT NULL DEFAULT 'pending',
+  hook_status TEXT NOT NULL DEFAULT 'none',
   created_at TEXT NOT NULL
 );
 
@@ -66,6 +67,16 @@ CREATE TABLE IF NOT EXISTS crop_suggestions (
   crop_facecam_rect TEXT,
   detection_method TEXT NOT NULL,
   confidence REAL NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hook_suggestions (
+  id TEXT PRIMARY KEY,
+  video_asset_id TEXT NOT NULL REFERENCES video_assets(id),
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  reasoning TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 
@@ -125,6 +136,14 @@ export function getDb(dbPath: string): Database.Database {
   const segmentAssignmentColumns = db.prepare("PRAGMA table_info(segment_assignments)").all() as { name: string }[];
   if (!segmentAssignmentColumns.some((c) => c.name === "caption_style")) {
     db.exec("ALTER TABLE segment_assignments ADD COLUMN caption_style TEXT");
+  }
+
+  // Migration path for DBs created before hook_status was added to video_assets.
+  // CREATE TABLE IF NOT EXISTS above is a no-op for pre-existing tables, so add the column
+  // explicitly if it's missing.
+  const videoAssetColumns = db.prepare("PRAGMA table_info(video_assets)").all() as { name: string }[];
+  if (!videoAssetColumns.some((c) => c.name === "hook_status")) {
+    db.exec("ALTER TABLE video_assets ADD COLUMN hook_status TEXT NOT NULL DEFAULT 'none'");
   }
 
   cached = db;

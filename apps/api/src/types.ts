@@ -51,6 +51,7 @@ export interface VideoAsset {
   asset_type: "footage" | "music";
   duration_seconds: number;
   analysis_status: "pending" | "done" | "failed";
+  hook_status: "none" | "pending" | "done" | "failed";
   created_at: string;
 }
 
@@ -60,6 +61,16 @@ export interface MomentCandidate {
   timestamp_ms: number;
   score: number;
   detection_type: "audio_peak" | "scene_change";
+  created_at: string;
+}
+
+export interface HookSuggestion {
+  id: string;
+  video_asset_id: string;
+  start_ms: number;
+  end_ms: number;
+  title: string;
+  reasoning: string;
   created_at: string;
 }
 

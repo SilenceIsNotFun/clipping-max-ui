@@ -152,4 +152,48 @@ describe("getDb", () => {
     expect(row.caption_style).toBe("energetic");
     migrated.close();
   });
+
+  it("creates the hook_suggestions table and a hook_status column on video_assets, migrated on an existing DB", () => {
+    const db = getDb(dbPath);
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((row: any) => row.name);
+    expect(tables).toContain("hook_suggestions");
+
+    const columns = db.prepare("PRAGMA table_info(video_assets)").all().map((row: any) => row.name);
+    expect(columns).toContain("hook_status");
+    db.close();
+  });
+
+  it("adds hook_status to video_assets on a DB that predates this column", () => {
+    resetDbCacheForTests();
+    const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-db-")), "app.db");
+    const oldDb = new Database(oldDbPath);
+    oldDb.exec(`
+      CREATE TABLE campaigns (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE video_assets (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        asset_type TEXT NOT NULL,
+        duration_seconds REAL NOT NULL,
+        analysis_status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL
+      );
+    `);
+    oldDb.close();
+
+    const reopened = getDb(oldDbPath);
+    const columns = reopened.prepare("PRAGMA table_info(video_assets)").all().map((row: any) => row.name);
+    expect(columns).toContain("hook_status");
+    reopened.close();
+  });
 });
