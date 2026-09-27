@@ -35,12 +35,26 @@ export function createRenderRouter(): Router {
     const jobId = randomUUID();
     const now = new Date().toISOString();
     const musicAssetId: string | null = req.body.music_asset_id ?? null;
+    const watermarkAssetId: string | null = req.body.watermark_asset_id ?? null;
+    const watermarkRect: Record<string, number> | null = req.body.watermark_rect ?? null;
     const ttsVoice: string = req.body.tts_voice ?? "id_ID-news_tts-medium";
 
     db.prepare(
-      `INSERT INTO render_jobs (id, campaign_id, status, tts_voice, music_asset_id, output_path, error_message, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(jobId, campaignId, "rendering", ttsVoice, musicAssetId, null, null, now, now);
+      `INSERT INTO render_jobs (id, campaign_id, status, tts_voice, music_asset_id, watermark_asset_id, watermark_rect, output_path, error_message, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      jobId,
+      campaignId,
+      "rendering",
+      ttsVoice,
+      musicAssetId,
+      watermarkAssetId,
+      watermarkRect ? JSON.stringify(watermarkRect) : null,
+      null,
+      null,
+      now,
+      now
+    );
 
     const segmentPayloads: RenderSegmentPayload[] = segments.map((s) => ({
       file_path: assetPathById.get(s.video_asset_id) ?? "",
@@ -57,6 +71,7 @@ export function createRenderRouter(): Router {
     }));
 
     const musicPath = musicAssetId ? assetPathById.get(musicAssetId) ?? null : null;
+    const watermarkPath = watermarkAssetId ? assetPathById.get(watermarkAssetId) ?? null : null;
 
     try {
       await submitRender(
@@ -65,6 +80,8 @@ export function createRenderRouter(): Router {
         segmentPayloads,
         ttsVoice,
         musicPath,
+        watermarkPath,
+        watermarkRect,
         `${callbackBase}/render/${jobId}/complete`
       );
     } catch (err) {

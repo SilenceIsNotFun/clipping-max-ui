@@ -96,6 +96,45 @@ describe("render routes", () => {
     expect(job.error_message).toBe("video-worker unreachable");
   });
 
+  it("resolves watermark_asset_id to a file path and passes watermark_rect through to submitRender", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("watermark-asset-1", campaignId, "/app/video-assets/logo.png", "watermark", 0, "done", now);
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "watermark-asset-1",
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(202);
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    expect(callArgs[5]).toBe("/app/video-assets/logo.png"); // watermarkPath
+    expect(callArgs[6]).toEqual({ x: 0.7, y: 0.05, width: 0.25, height: 0.1 }); // watermarkRect
+
+    const job = db.prepare("SELECT * FROM render_jobs WHERE id = ?").get(res.body.job_id) as any;
+    expect(job.watermark_asset_id).toBe("watermark-asset-1");
+    expect(JSON.parse(job.watermark_rect)).toEqual({ x: 0.7, y: 0.05, width: 0.25, height: 0.1 });
+  });
+
+  it("submits a render with no watermark and passes null watermark fields", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const app = createApp();
+    const res = await request(app).post(`/api/campaigns/${campaignId}/render`).send({ tts_voice: "id_ID-news_tts-medium" });
+
+    expect(res.status).toBe(202);
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    expect(callArgs[5]).toBeNull();
+    expect(callArgs[6]).toBeNull();
+  });
+
   it("finalizes a ready render job", async () => {
     const app = createApp();
     const db = getDb(dbPath);
