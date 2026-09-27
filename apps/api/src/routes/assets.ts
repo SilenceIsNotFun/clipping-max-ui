@@ -6,7 +6,7 @@ import express, { Router } from "express";
 import multer from "multer";
 import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
-import { analyzeAsset } from "../services/videoWorkerClient";
+import { analyzeAsset, findHooks } from "../services/videoWorkerClient";
 
 function probeDurationSeconds(filePath: string): number {
   try {
@@ -101,6 +101,57 @@ export function createAssetsRouter(): Router {
       return;
     }
     res.json(suggestion);
+  });
+
+  router.post("/:assetId/find-hooks", asyncHandler(async (req, res) => {
+    const db = getDb(dbPath);
+    const campaignId = (req.params as { id: string }).id;
+    const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(req.params.assetId) as
+      | { id: string; file_path: string }
+      | undefined;
+    if (!asset) {
+      res.status(404).json({ error: "asset not found" });
+      return;
+    }
+
+    const plan = db
+      .prepare("SELECT * FROM plans WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 1")
+      .get(campaignId) as { strategy_summary: string; requirements_checklist: string; content_plan: string } | undefined;
+    if (!plan) {
+      res.status(400).json({ error: "campaign has no plan yet; generate a plan before finding hooks" });
+      return;
+    }
+
+    const requirementsChecklist = JSON.parse(plan.requirements_checklist) as string[];
+    const contentPlan = JSON.parse(plan.content_plan) as { hook?: string };
+
+    db.prepare("UPDATE video_assets SET hook_status = ? WHERE id = ?").run("pending", req.params.assetId);
+
+    try {
+      await findHooks(
+        videoWorkerUrl,
+        req.params.assetId,
+        asset.file_path,
+        contentPlan.hook ?? "",
+        plan.strategy_summary,
+        requirementsChecklist,
+        `${callbackBase}/assets/${req.params.assetId}/hooks-complete`
+      );
+    } catch (err) {
+      db.prepare("UPDATE video_assets SET hook_status = ? WHERE id = ?").run("failed", req.params.assetId);
+      res.status(202).json({ status: "failed" });
+      return;
+    }
+
+    res.status(202).json({ status: "pending" });
+  }));
+
+  router.get("/:assetId/hook-suggestions", (req, res) => {
+    const db = getDb(dbPath);
+    const suggestions = db
+      .prepare("SELECT * FROM hook_suggestions WHERE video_asset_id = ? ORDER BY created_at ASC")
+      .all(req.params.assetId);
+    res.json(suggestions);
   });
 
   router.delete("/:assetId", (req, res) => {

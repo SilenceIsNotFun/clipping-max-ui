@@ -7,6 +7,7 @@ import { getDb, resetDbCacheForTests } from "../src/db";
 
 jest.mock("../src/services/videoWorkerClient", () => ({
   analyzeAsset: jest.fn().mockResolvedValue(undefined),
+  findHooks: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe("asset routes", () => {
@@ -196,5 +197,88 @@ describe("asset routes", () => {
 
     expect(fs.existsSync(uploadRes.body.file_path)).toBe(true);
     expect(db.prepare("SELECT * FROM video_assets WHERE id = ?").get(assetId)).toBeDefined();
+  });
+
+  it("triggers find-hooks and returns 202", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const db = getDb(process.env.DB_PATH as string);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO plans (id, campaign_id, strategy_summary, requirements_checklist, content_plan, opportunity_score, pdf_path, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "plan-1",
+      campaignId,
+      "Fast cuts, high energy",
+      JSON.stringify(["30-59 seconds only"]),
+      JSON.stringify({ hook: "Lead with the prize" }),
+      80,
+      null,
+      now
+    );
+
+    const res = await request(app).post(`/api/campaigns/${campaignId}/assets/${uploadRes.body.id}/find-hooks`);
+    expect(res.status).toBe(202);
+  });
+
+  it("returns 404 for find-hooks on an unknown asset", async () => {
+    const app = createApp();
+    const res = await request(app).post(`/api/campaigns/${campaignId}/assets/does-not-exist/find-hooks`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for find-hooks when the campaign has no plan yet", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const res = await request(app).post(`/api/campaigns/${campaignId}/assets/${uploadRes.body.id}/find-hooks`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/plan/i);
+  });
+
+  it("returns an empty array (not 404) when no hook suggestions exist yet", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const res = await request(app).get(
+      `/api/campaigns/${campaignId}/assets/${uploadRes.body.id}/hook-suggestions`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it("returns all hook_suggestions rows for an asset", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO hook_suggestions (id, video_asset_id, start_ms, end_ms, title, reasoning, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("hs-1", assetId, 1000, 10000, "Title A", "Reason A", new Date().toISOString());
+
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/${assetId}/hook-suggestions`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].title).toBe("Title A");
   });
 });
