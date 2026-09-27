@@ -124,6 +124,82 @@ describe("render routes", () => {
     expect(JSON.parse(job.watermark_rect)).toEqual({ x: 0.7, y: 0.05, width: 0.25, height: 0.1 });
   });
 
+  it("rejects watermark_asset_id without watermark_rect with a 400", async () => {
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("watermark-asset-2", campaignId, "/app/video-assets/logo2.png", "watermark", 0, "done", now);
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "watermark-asset-2",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_rect is required when watermark_asset_id is set" });
+
+    const jobRows = db.prepare("SELECT * FROM render_jobs WHERE campaign_id = ?").all(campaignId);
+    expect(jobRows.length).toBe(0);
+  });
+
+  it("rejects a nonexistent watermark_asset_id with a 400, not a 500", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "does-not-exist",
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+  });
+
+  it("rejects a watermark_asset_id belonging to a different campaign with a 400", async () => {
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    const otherCampaignId = "campaign-other";
+    db.prepare(
+      `INSERT INTO campaigns (id, title, status, source_file_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(otherCampaignId, "Other", "planned", "/y.pdf", now, now);
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("watermark-other-campaign", otherCampaignId, "/app/video-assets/other-logo.png", "watermark", 0, "done", now);
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "watermark-other-campaign",
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+  });
+
+  it("rejects a watermark_asset_id pointing to a non-watermark asset with a 400", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: assetId, // this is a "footage" asset from beforeEach
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+  });
+
   it("submits a render with no watermark and passes null watermark fields", async () => {
     const { submitRender } = require("../src/services/videoWorkerClient");
     const app = createApp();
