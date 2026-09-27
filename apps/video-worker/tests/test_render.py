@@ -1,4 +1,5 @@
 import os
+import subprocess
 import wave
 from unittest.mock import patch
 
@@ -59,6 +60,59 @@ def test_render_video_produces_output_and_offsets_captions(tmp_path):
     # second segment's caption words must be offset by the first segment's duration (1.0s)
     assert result.caption_words[0].start_ms == 0
     assert result.caption_words[1].start_ms == 1000
+
+
+def test_render_video_overlays_watermark_when_present(tmp_path):
+    from schemas import CropRect, RenderJobInput, RenderSegmentInput
+    from render import render_video
+
+    fixtures = os.path.join(os.path.dirname(__file__), "fixtures")
+    watermark_path = os.path.join(fixtures, "sample_watermark.png")
+
+    segment = RenderSegmentInput(
+        file_path=os.path.join(fixtures, "short_clip.mp4"),
+        trim_start=0,
+        trim_end=1,
+        order_index=0,
+        script_text="hello",
+        layout_template="standard",
+    )
+    job = RenderJobInput(
+        segments=[segment],
+        tts_voice="id_ID-news_tts-medium",
+        voices_dir=os.environ.get("PIPER_VOICES_DIR", "/app/voices"),
+        watermark_path=watermark_path,
+        watermark_rect=CropRect(x=0.7, y=0.05, width=0.25, height=0.1),
+        output_path=str(tmp_path / "output.mp4"),
+    )
+
+    result = render_video(job, str(tmp_path))
+    assert os.path.exists(result.output_path)
+    # A real ffprobe check that the output is a valid, playable video is
+    # sufient here -- pixel-level verification of *where* the watermark
+    # landed is out of scope for an automated test in this project
+    # (established pattern: prior layout/title tests verify the filter
+    # string, not rendered pixels).
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", result.output_path],
+        capture_output=True,
+        text=True,
+    )
+    assert probe.returncode == 0
+    assert float(probe.stdout.strip()) > 0
+
+
+def test_build_watermark_overlay_filter_computes_pixel_geometry():
+    from schemas import CropRect
+    from render import _build_watermark_filter
+
+    rect = CropRect(x=0.7, y=0.05, width=0.25, height=0.1)
+    filter_str, watermark_input_index = _build_watermark_filter(rect, base_label="v", watermark_input_index=3)
+
+    assert "scale=270:192" in filter_str  # 0.25*1080=270, 0.1*1920=192
+    assert "overlay=756:96" in filter_str  # 0.7*1080=756, 0.05*1920=96
+    assert "[3:v]" in filter_str
+    assert watermark_input_index == 3
 
 
 def test_write_ass_default_style_produces_dialogue_events_with_color_tags(tmp_path):

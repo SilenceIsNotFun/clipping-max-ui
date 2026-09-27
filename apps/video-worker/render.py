@@ -3,7 +3,7 @@ import os
 from alignment import align_words
 from ffmpeg_utils import probe_duration, run_ffmpeg
 from layout import build_segment_filter
-from schemas import CaptionWord, RenderJobInput, RenderResult, SegmentInput
+from schemas import CaptionWord, CropRect, RenderJobInput, RenderResult, SegmentInput
 from title_render import render_title_png
 from tts import generate_tts
 
@@ -129,6 +129,22 @@ def _concat_audio_only(audio_paths: list[str], output_path: str) -> None:
     run_ffmpeg(args)
 
 
+def _build_watermark_filter(rect: "CropRect", base_label: str, watermark_input_index: int) -> tuple[str, int]:
+    """Returns (filter graph fragment, the input index the watermark PNG
+    must be added at). Scales the watermark to the rect's pixel size
+    against the fixed 1080x1920 canvas and overlays it onto `base_label`,
+    producing a new output label `[vout]`."""
+    w = round(rect.width * 1080)
+    h = round(rect.height * 1920)
+    x = round(rect.x * 1080)
+    y = round(rect.y * 1920)
+    filter_str = (
+        f";[{watermark_input_index}:v]scale={w}:{h}[wm];"
+        f"[{base_label}][wm]overlay={x}:{y}[vout]"
+    )
+    return filter_str, watermark_input_index
+
+
 def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
     ordered_segments = sorted(job.segments, key=lambda s: s.order_index)
 
@@ -170,47 +186,57 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
 
     final_output = job.output_path
     if job.music_path:
-        run_ffmpeg(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                concat_video,
-                "-i",
-                concat_voiceover,
-                "-stream_loop",
-                "-1",
-                "-i",
-                job.music_path,
-                "-filter_complex",
-                f"[0:v]subtitles='{escaped_ass_path}'[v];"
-                "[2:a]volume=0.2[music];[1:a][music]amix=inputs=2:duration=first[a]",
-                "-map",
-                "[v]",
-                "-map",
-                "[a]",
-                "-shortest",
-                final_output,
-            ]
-        )
+        args = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            concat_video,
+            "-i",
+            concat_voiceover,
+            "-stream_loop",
+            "-1",
+            "-i",
+            job.music_path,
+        ]
+        input_count = 3  # concat_video, concat_voiceover, music_path -- do NOT derive this from len(args); -stream_loop/-1 are extra non-input elements that throw off any arithmetic on the list length
+        video_filter = f"[0:v]subtitles='{escaped_ass_path}'[v]"
+        video_out_label = "v"
+        if job.watermark_path and job.watermark_rect:
+            args += ["-i", job.watermark_path]
+            wm_filter, _ = _build_watermark_filter(job.watermark_rect, "v", input_count)
+            video_filter += wm_filter
+            video_out_label = "vout"
+        args += [
+            "-filter_complex",
+            f"{video_filter};[2:a]volume=0.2[music];[1:a][music]amix=inputs=2:duration=first[a]",
+            "-map",
+            f"[{video_out_label}]",
+            "-map",
+            "[a]",
+            "-shortest",
+            final_output,
+        ]
+        run_ffmpeg(args)
     else:
-        run_ffmpeg(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                concat_video,
-                "-i",
-                concat_voiceover,
-                "-filter_complex",
-                f"[0:v]subtitles='{escaped_ass_path}'[v]",
-                "-map",
-                "[v]",
-                "-map",
-                "1:a",
-                "-shortest",
-                final_output,
-            ]
-        )
+        args = ["ffmpeg", "-y", "-i", concat_video, "-i", concat_voiceover]
+        input_count = 2  # concat_video, concat_voiceover
+        video_filter = f"[0:v]subtitles='{escaped_ass_path}'[v]"
+        video_out_label = "v"
+        if job.watermark_path and job.watermark_rect:
+            args += ["-i", job.watermark_path]
+            wm_filter, _ = _build_watermark_filter(job.watermark_rect, "v", input_count)
+            video_filter += wm_filter
+            video_out_label = "vout"
+        args += [
+            "-filter_complex",
+            video_filter,
+            "-map",
+            f"[{video_out_label}]",
+            "-map",
+            "1:a",
+            "-shortest",
+            final_output,
+        ]
+        run_ffmpeg(args)
 
     return RenderResult(output_path=final_output, caption_words=all_caption_words)

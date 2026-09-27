@@ -66,6 +66,8 @@ class RenderJobInput(BaseModel):
     tts_voice: str
     voices_dir: str
     music_path: Optional[str] = None
+    watermark_path: Optional[str] = None
+    watermark_rect: Optional[CropRect] = None
     output_path: str
 
 
