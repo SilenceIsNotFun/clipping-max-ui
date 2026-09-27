@@ -9,6 +9,7 @@ export interface RenderSegmentPayload {
   crop_gameplay_rect?: Record<string, number>;
   crop_facecam_rect?: Record<string, number>;
   title_text?: string;
+  title_rect?: Record<string, number>;
   caption_style?: string;
 }
 

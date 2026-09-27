@@ -135,6 +135,22 @@ describe("render routes", () => {
     expect(callArgs[6]).toBeNull();
   });
 
+  it("includes title_rect in the segment payload sent to submitRender", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const db = getDb(dbPath);
+    db.prepare("UPDATE segment_assignments SET title_rect = ? WHERE campaign_id = ?").run(
+      JSON.stringify({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 }),
+      campaignId
+    );
+
+    const app = createApp();
+    await request(app).post(`/api/campaigns/${campaignId}/render`).send({ tts_voice: "id_ID-news_tts-medium" });
+
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    const segmentPayloads = callArgs[2];
+    expect(segmentPayloads[0].title_rect).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
+  });
+
   it("finalizes a ready render job", async () => {
     const app = createApp();
     const db = getDb(dbPath);
