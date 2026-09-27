@@ -38,6 +38,7 @@ services:
     environment:
       - API_INTERNAL_CALLBACK_URL=http://api:4000/api/internal
       - PIPER_VOICES_DIR=/app/voices
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       # GPU-decode long videos when scanning for scene changes (the only
       # part of analysis that scans the whole file frame-by-frame). Face/crop
       # detection samples a fixed handful of frames regardless of duration,
