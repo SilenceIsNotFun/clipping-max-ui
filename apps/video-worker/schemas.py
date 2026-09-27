@@ -72,3 +72,10 @@ class RenderJobInput(BaseModel):
 class RenderResult(BaseModel):
     output_path: str
     caption_words: list[CaptionWord]
+
+
+class HookSuggestion(BaseModel):
+    start_ms: int
+    end_ms: int
+    title: str
+    reasoning: str
