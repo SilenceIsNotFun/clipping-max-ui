@@ -213,3 +213,55 @@ def test_render_reports_error_on_failure():
         _, kwargs = mock_post.call_args
         assert kwargs["json"]["job_id"] == "job-2"
         assert "ffmpeg exploded" in kwargs["json"]["error"]
+
+
+def test_find_hooks_returns_202_and_calls_callback_with_suggestions():
+    from schemas import HookSuggestion
+
+    fake_suggestions = [HookSuggestion(start_ms=1000, end_ms=10000, title="T", reasoning="R")]
+    with patch("main.find_hooks", return_value=fake_suggestions), patch("main.requests.post") as mock_post:
+        resp = client.post(
+            "/find-hooks",
+            json={
+                "video_asset_id": "asset-1",
+                "file_path": os.path.join(FIXTURES, "short_clip.mp4"),
+                "hook": "lead with the prize",
+                "strategy_summary": "fast cuts",
+                "requirements_checklist": ["30-59 seconds"],
+                "callback_url": "http://api:4000/api/internal/assets/asset-1/hooks-complete",
+            },
+        )
+        assert resp.status_code == 202
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    _, kwargs = mock_post.call_args
+    body = kwargs["json"]
+    assert body["video_asset_id"] == "asset-1"
+    assert body["hook_suggestions"][0]["title"] == "T"
+
+
+def test_find_hooks_reports_error_on_gemini_failure():
+    with patch("main.find_hooks", side_effect=RuntimeError("no GEMINI_API_KEY set")), patch(
+        "main.requests.post"
+    ) as mock_post:
+        client.post(
+            "/find-hooks",
+            json={
+                "video_asset_id": "asset-2",
+                "file_path": os.path.join(FIXTURES, "short_clip.mp4"),
+                "hook": "hook",
+                "strategy_summary": "strategy",
+                "requirements_checklist": [],
+                "callback_url": "http://api:4000/api/internal/assets/asset-2/hooks-complete",
+            },
+        )
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    _, kwargs = mock_post.call_args
+    assert "no GEMINI_API_KEY" in kwargs["json"]["error"]

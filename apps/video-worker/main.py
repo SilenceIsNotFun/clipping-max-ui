@@ -6,12 +6,14 @@ import requests
 from fastapi import BackgroundTasks, FastAPI
 
 from face_crop import detect_crop_suggestion
+from hook_finder import find_hooks
 from moment_detection import detect_audio_peaks, detect_scene_changes
 from render import render_video
 from schemas import RenderJobInput
 
 app = FastAPI(title="contentrewardfarm-video-worker")
 logger = logging.getLogger("video-worker")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 
 def _post_callback(callback_url: str, payload: dict) -> None:
@@ -89,4 +91,39 @@ def render(payload: dict, background_tasks: BackgroundTasks) -> dict:
         output_path=output_path,
     )
     background_tasks.add_task(_run_render, job_id, job_input, payload["callback_url"])
+    return {"status": "accepted"}
+
+
+def _run_find_hooks(
+    video_asset_id: str,
+    file_path: str,
+    hook: str,
+    strategy_summary: str,
+    requirements_checklist: list[str],
+    callback_url: str,
+) -> None:
+    try:
+        suggestions = find_hooks(file_path, hook, strategy_summary, requirements_checklist, GEMINI_API_KEY)
+        _post_callback(
+            callback_url,
+            {
+                "video_asset_id": video_asset_id,
+                "hook_suggestions": [s.model_dump() for s in suggestions],
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - report any failure to the caller
+        _post_callback(callback_url, {"video_asset_id": video_asset_id, "error": str(exc)})
+
+
+@app.post("/find-hooks", status_code=202)
+def find_hooks_route(payload: dict, background_tasks: BackgroundTasks) -> dict:
+    background_tasks.add_task(
+        _run_find_hooks,
+        payload["video_asset_id"],
+        payload["file_path"],
+        payload["hook"],
+        payload["strategy_summary"],
+        payload["requirements_checklist"],
+        payload["callback_url"],
+    )
     return {"status": "accepted"}

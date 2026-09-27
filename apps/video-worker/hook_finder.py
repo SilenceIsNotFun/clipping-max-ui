@@ -1,5 +1,8 @@
 import json
 import re
+import time
+
+from google import genai
 
 from schemas import HookSuggestion
 
@@ -54,3 +57,26 @@ def parse_hook_response(raw: str) -> list[HookSuggestion]:
         )
         for item in data
     ]
+
+
+def find_hooks(
+    file_path: str,
+    hook: str,
+    strategy_summary: str,
+    requirements_checklist: list[str],
+    api_key: str,
+    model: str = "gemini-2.5-flash",
+) -> list[HookSuggestion]:
+    client = genai.Client(api_key=api_key)
+    uploaded = client.files.upload(file=file_path)
+
+    while uploaded.state == "PROCESSING":
+        time.sleep(2)
+        uploaded = client.files.get(name=uploaded.name)
+
+    if uploaded.state == "FAILED":
+        raise RuntimeError(f"Gemini failed to process uploaded video: {uploaded.error}")
+
+    prompt = build_prompt(hook, strategy_summary, requirements_checklist)
+    response = client.models.generate_content(model=model, contents=[uploaded, prompt])
+    return parse_hook_response(response.text)

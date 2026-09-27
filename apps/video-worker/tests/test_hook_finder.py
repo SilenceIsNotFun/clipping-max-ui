@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from hook_finder import build_prompt, parse_hook_response
@@ -63,3 +65,87 @@ def test_parse_hook_response_raises_on_missing_json():
 def test_parse_hook_response_raises_on_malformed_json():
     with pytest.raises(ValueError):
         parse_hook_response("[ this is not valid json ]")
+
+
+class _FakeFile:
+    def __init__(self, state: str = "ACTIVE", name: str = "files/abc123"):
+        self.state = state
+        self.name = name
+        self.error = None
+
+
+def test_find_hooks_uploads_file_and_returns_parsed_suggestions():
+    fake_uploaded = _FakeFile(state="ACTIVE")
+    fake_response = MagicMock()
+    fake_response.text = '[{"start_seconds": 1, "end_seconds": 10, "title": "T", "reasoning": "R"}]'
+
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = fake_uploaded
+    fake_client.models.generate_content.return_value = fake_response
+
+    with patch("hook_finder.genai.Client", return_value=fake_client):
+        from hook_finder import find_hooks
+
+        result = find_hooks(
+            file_path="/tmp/fake.mp4",
+            hook="lead with the prize",
+            strategy_summary="fast cuts",
+            requirements_checklist=["30-59 seconds"],
+            api_key="fake-key",
+        )
+
+    assert len(result) == 1
+    assert result[0].title == "T"
+    fake_client.files.upload.assert_called_once_with(file="/tmp/fake.mp4")
+    # the uploaded file and the prompt must both be passed as contents
+    call_kwargs = fake_client.models.generate_content.call_args.kwargs
+    assert fake_uploaded in call_kwargs["contents"]
+    assert any(isinstance(c, str) and "lead with the prize" in c for c in call_kwargs["contents"])
+
+
+def test_find_hooks_waits_for_processing_state():
+    processing_then_active = [_FakeFile(state="PROCESSING"), _FakeFile(state="ACTIVE")]
+    fake_response = MagicMock()
+    fake_response.text = '[{"start_seconds": 1, "end_seconds": 10, "title": "T", "reasoning": "R"}]'
+
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = processing_then_active[0]
+    fake_client.files.get.return_value = processing_then_active[1]
+    fake_client.models.generate_content.return_value = fake_response
+
+    with patch("hook_finder.genai.Client", return_value=fake_client), patch("hook_finder.time.sleep"):
+        from hook_finder import find_hooks
+
+        result = find_hooks(
+            file_path="/tmp/fake.mp4",
+            hook="hook",
+            strategy_summary="strategy",
+            requirements_checklist=[],
+            api_key="fake-key",
+        )
+
+    assert len(result) == 1
+    fake_client.files.get.assert_called_once()
+
+
+def test_find_hooks_raises_when_gemini_processing_fails():
+    fake_uploaded = _FakeFile(state="FAILED")
+    fake_uploaded.error = "corrupt video"
+
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = fake_uploaded
+
+    with patch("hook_finder.genai.Client", return_value=fake_client):
+        from hook_finder import find_hooks
+
+        try:
+            find_hooks(
+                file_path="/tmp/fake.mp4",
+                hook="hook",
+                strategy_summary="strategy",
+                requirements_checklist=[],
+                api_key="fake-key",
+            )
+            assert False, "expected RuntimeError"
+        except RuntimeError as exc:
+            assert "corrupt video" in str(exc)
