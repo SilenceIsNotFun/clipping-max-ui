@@ -102,6 +102,114 @@ def test_render_video_overlays_watermark_when_present(tmp_path):
     assert float(probe.stdout.strip()) > 0
 
 
+def _run_render_video_with_mocked_ffmpeg(job, tmp_path):
+    """Runs render_video with every dependency except the final run_ffmpeg
+    call site heavily mocked out, so we can inspect the exact `args` list
+    passed to the last ffmpeg invocation (the one that produces
+    `final_output`) without touching real ffmpeg/piper. Returns that args
+    list."""
+    fake_video_path = str(tmp_path / "segment_0_video.mp4")
+    fake_tts_path = str(tmp_path / "segment_0_tts.wav")
+
+    captured_calls = []
+
+    def fake_run_ffmpeg(args):
+        captured_calls.append(args)
+
+    with patch(
+        "render._render_single_segment",
+        return_value=(fake_video_path, fake_tts_path),
+    ), patch("render.align_words", return_value=[]), patch(
+        "render.probe_duration", return_value=1.0
+    ), patch(
+        "render._concat_video_only"
+    ), patch(
+        "render._concat_audio_only"
+    ), patch(
+        "render._write_ass"
+    ), patch(
+        "render.run_ffmpeg", side_effect=fake_run_ffmpeg
+    ):
+        render_video(job, str(tmp_path))
+
+    # The final ffmpeg invocation (the one building `final_output`) is the
+    # last captured call -- _render_single_segment's own run_ffmpeg call is
+    # mocked out entirely via the _render_single_segment patch above, so
+    # there is exactly one captured call here.
+    assert len(captured_calls) == 1
+    return captured_calls[0]
+
+
+def test_render_video_omits_watermark_stage_when_unset(tmp_path):
+    """Regression guard: when watermark_path/watermark_rect are unset, the
+    constructed ffmpeg args must be byte-for-byte the pre-feature shape --
+    no watermark input, no [wm]/[vout] filter fragments, and -map "[v]"
+    (not "[vout]")."""
+    segment = RenderSegmentInput(
+        file_path=CLIP,
+        trim_start=0.0,
+        trim_end=1.0,
+        order_index=0,
+        script_text="hi",
+        layout_template="standard",
+    )
+    job = RenderJobInput(
+        segments=[segment],
+        tts_voice="id_ID-voice-medium",
+        voices_dir="/app/voices",
+        music_path=None,
+        watermark_path=None,
+        watermark_rect=None,
+        output_path=str(tmp_path / "final.mp4"),
+    )
+
+    args = _run_render_video_with_mocked_ffmpeg(job, tmp_path)
+
+    assert not any(str(a).endswith(".png") for a in args)  # no watermark -i entry
+    assert "[wm]" not in "".join(args)
+    assert "[vout]" not in "".join(args)
+    assert "-map" in args
+    map_index = args.index("-map")
+    assert args[map_index + 1] == "[v]"
+
+
+def test_render_video_includes_watermark_stage_when_set(tmp_path):
+    """Regression guard: when watermark_path/watermark_rect ARE set, the
+    constructed ffmpeg args must include the watermark -i entry, the
+    [wm]/[vout] filter fragments, and -map "[vout]"."""
+    from schemas import CropRect
+
+    segment = RenderSegmentInput(
+        file_path=CLIP,
+        trim_start=0.0,
+        trim_end=1.0,
+        order_index=0,
+        script_text="hi",
+        layout_template="standard",
+    )
+    watermark_path = os.path.join(FIXTURES, "sample_watermark.png")
+    job = RenderJobInput(
+        segments=[segment],
+        tts_voice="id_ID-voice-medium",
+        voices_dir="/app/voices",
+        music_path=None,
+        watermark_path=watermark_path,
+        watermark_rect=CropRect(x=0.7, y=0.05, width=0.25, height=0.1),
+        output_path=str(tmp_path / "final.mp4"),
+    )
+
+    args = _run_render_video_with_mocked_ffmpeg(job, tmp_path)
+
+    assert watermark_path in args
+    assert args[args.index(watermark_path) - 1] == "-i"
+    joined = "".join(args)
+    assert "[wm]" in joined
+    assert "[vout]" in joined
+    assert "-map" in args
+    map_index = args.index("-map")
+    assert args[map_index + 1] == "[vout]"
+
+
 def test_build_watermark_overlay_filter_computes_pixel_geometry():
     from schemas import CropRect
     from render import _build_watermark_filter
