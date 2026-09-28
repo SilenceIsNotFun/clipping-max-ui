@@ -11,3 +11,4 @@ httpx==0.28.1
 opencv-contrib-python-headless==4.10.0.84
 Pillow==10.4.0
 google-genai==1.21.1
+yt-dlp>=2025.1.1
