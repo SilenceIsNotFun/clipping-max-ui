@@ -224,4 +224,49 @@ describe("internal hooks-complete callback", () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r: any) => r.title).sort()).toEqual(["First run", "Second run"]);
   });
+
+  it("marks a cut_job done and creates a clip asset on success", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO cut_jobs (id, campaign_id, source_asset_id, start_seconds, duration_seconds, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("cutjob-1", "campaign-1", assetId, 1, 2, "pending", now);
+
+    const res = await request(app)
+      .post(`/api/internal/cut-jobs/cutjob-1/complete`)
+      .send({ cut_job_id: "cutjob-1", status: "done", output_path: "/app/video-assets/clips/cutjob-1.mp4", duration_seconds: 1.9 });
+
+    expect(res.status).toBe(200);
+    const job = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get("cutjob-1") as any;
+    expect(job.status).toBe("done");
+    expect(job.result_asset_id).toBeTruthy();
+
+    const clip = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(job.result_asset_id) as any;
+    expect(clip.asset_type).toBe("clip");
+    expect(clip.file_path).toBe("/app/video-assets/clips/cutjob-1.mp4");
+    expect(clip.duration_seconds).toBe(1.9);
+    expect(clip.campaign_id).toBe("campaign-1");
+  });
+
+  it("marks a cut_job failed and creates no asset on error", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO cut_jobs (id, campaign_id, source_asset_id, start_seconds, duration_seconds, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("cutjob-2", "campaign-1", assetId, 1, 2, "pending", now);
+
+    const res = await request(app)
+      .post(`/api/internal/cut-jobs/cutjob-2/complete`)
+      .send({ cut_job_id: "cutjob-2", status: "failed", error: "ffmpeg exited 1" });
+
+    expect(res.status).toBe(200);
+    const job = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get("cutjob-2") as any;
+    expect(job.status).toBe("failed");
+    expect(job.error_message).toBe("ffmpeg exited 1");
+    expect(job.result_asset_id).toBeNull();
+  });
 });

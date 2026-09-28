@@ -406,4 +406,29 @@ describe("asset routes", () => {
       .send({ start_seconds: 0, duration_seconds: 0 });
     expect(res.status).toBe(400);
   });
+
+  it("returns a cut_jobs row by id", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO cut_jobs (id, campaign_id, source_asset_id, start_seconds, duration_seconds, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("cutjob-3", campaignId, uploadRes.body.id, 0, 2, "pending", new Date().toISOString());
+
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/cut-jobs/cutjob-3`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("pending");
+  });
+
+  it("returns 404 for an unknown cut_jobs id", async () => {
+    const app = createApp();
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/cut-jobs/does-not-exist`);
+    expect(res.status).toBe(404);
+  });
 });

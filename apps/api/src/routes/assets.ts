@@ -218,6 +218,16 @@ export function createAssetsRouter(): Router {
     res.status(202).json({ cut_job_id: jobId });
   }));
 
+  router.get("/cut-jobs/:jobId", (req, res) => {
+    const db = getDb(dbPath);
+    const job = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "cut job not found" });
+      return;
+    }
+    res.json(job);
+  });
+
   router.delete("/:assetId", (req, res) => {
     const db = getDb(dbPath);
     const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(req.params.assetId) as

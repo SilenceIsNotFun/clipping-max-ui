@@ -132,5 +132,37 @@ export function createInternalRouter(): Router {
     res.json({ status: "recorded" });
   });
 
+  router.post("/cut-jobs/:jobId/complete", (req, res) => {
+    const db = getDb(dbPath);
+    const { jobId } = req.params;
+    const now = new Date().toISOString();
+
+    if (req.body.status === "failed") {
+      console.error(`cut failed for job ${jobId}:`, req.body.error);
+      db.prepare("UPDATE cut_jobs SET status = ?, error_message = ? WHERE id = ?").run(
+        "failed",
+        req.body.error,
+        jobId
+      );
+      res.json({ status: "recorded" });
+      return;
+    }
+
+    const job = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get(jobId) as { campaign_id: string } | undefined;
+    if (!job) {
+      res.status(404).json({ error: "cut job not found" });
+      return;
+    }
+
+    const clipId = randomUUID();
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(clipId, job.campaign_id, req.body.output_path, "clip", req.body.duration_seconds, "done", now);
+
+    db.prepare("UPDATE cut_jobs SET status = ?, result_asset_id = ? WHERE id = ?").run("done", clipId, jobId);
+    res.json({ status: "recorded" });
+  });
+
   return router;
 }
