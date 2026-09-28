@@ -387,3 +387,132 @@ def test_find_hooks_reports_error_on_gemini_failure():
 
     _, kwargs = mock_post.call_args
     assert "no GEMINI_API_KEY" in kwargs["json"]["error"]
+
+
+def test_download_youtube_returns_202_and_posts_progress_then_done(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    def fake_download(url, output_path, on_progress=None, timeout_seconds=1800):
+        # Simulate two progress ticks (both should be throttled to at most
+        # one POST given they happen "instantly" in a test) then success.
+        if on_progress:
+            on_progress({"downloaded_bytes": 100, "total_bytes": 1000, "speed_bytes_per_sec": 50.0})
+            on_progress({"downloaded_bytes": 200, "total_bytes": 1000, "speed_bytes_per_sec": 55.0})
+
+    monkeypatch.setattr("main.download_youtube_video", fake_download)
+    monkeypatch.setattr("main.probe_duration", MagicMock(return_value=42.0))
+    monkeypatch.setenv("VIDEO_ASSETS_DIR", str(tmp_path))
+
+    posted = []
+
+    def fake_post(url, json, timeout):
+        posted.append(json)
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        return FakeResponse()
+
+    monkeypatch.setattr("main.requests.post", fake_post)
+
+    res = client.post(
+        "/download-youtube",
+        json={"job_id": "job-1", "url": "https://youtube.com/watch?v=x", "callback_url": "http://api:4000/api/internal/youtube-jobs/job-1/progress"},
+    )
+    assert res.status_code == 202
+
+    for _ in range(20):
+        if any(p.get("status") == "done" for p in posted):
+            break
+        time.sleep(0.05)
+
+    # Both progress ticks happen back-to-back with no real time elapsed, so
+    # the throttle should have posted at most one "downloading" update, then
+    # exactly one final "done".
+    downloading_posts = [p for p in posted if p.get("status") == "downloading"]
+    done_posts = [p for p in posted if p.get("status") == "done"]
+    assert len(downloading_posts) <= 1
+    assert len(done_posts) == 1
+    assert done_posts[0]["job_id"] == "job-1"
+    assert done_posts[0]["duration_seconds"] == 42.0
+    assert "output_path" in done_posts[0]
+
+
+def test_download_youtube_reports_error_on_failure(monkeypatch):
+    def fake_download(url, output_path, on_progress=None, timeout_seconds=1800):
+        raise RuntimeError("yt-dlp exited 1: Video unavailable")
+
+    monkeypatch.setattr("main.download_youtube_video", fake_download)
+
+    posted = {}
+
+    def fake_post(url, json, timeout):
+        posted["json"] = json
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        return FakeResponse()
+
+    monkeypatch.setattr("main.requests.post", fake_post)
+
+    res = client.post(
+        "/download-youtube",
+        json={"job_id": "job-2", "url": "https://youtube.com/watch?v=bad", "callback_url": "http://api:4000/api/internal/youtube-jobs/job-2/progress"},
+    )
+    assert res.status_code == 202
+
+    for _ in range(20):
+        if posted:
+            break
+        time.sleep(0.05)
+
+    assert posted["json"]["job_id"] == "job-2"
+    assert posted["json"]["status"] == "failed"
+    assert "error" in posted["json"]
+
+
+def test_download_youtube_reports_error_when_downloaded_file_is_unreadable(monkeypatch, tmp_path):
+    # A "successful" yt-dlp exit whose output file ffprobe can't read (corrupt
+    # merge, unsupported codec) must still surface as failed -- not a
+    # video_assets row with a bogus duration that breaks every later
+    # timeline calculation.
+    def fake_download(url, output_path, on_progress=None, timeout_seconds=1800):
+        pass  # "succeeds" without producing a readable file
+
+    def fake_probe_duration(path):
+        raise RuntimeError("ffprobe: Invalid data found when processing input")
+
+    monkeypatch.setattr("main.download_youtube_video", fake_download)
+    monkeypatch.setattr("main.probe_duration", fake_probe_duration)
+    monkeypatch.setenv("VIDEO_ASSETS_DIR", str(tmp_path))
+
+    posted = {}
+
+    def fake_post(url, json, timeout):
+        posted["json"] = json
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+        return FakeResponse()
+
+    monkeypatch.setattr("main.requests.post", fake_post)
+
+    res = client.post(
+        "/download-youtube",
+        json={"job_id": "job-3", "url": "https://youtube.com/watch?v=x", "callback_url": "http://api:4000/api/internal/youtube-jobs/job-3/progress"},
+    )
+    assert res.status_code == 202
+
+    for _ in range(20):
+        if posted:
+            break
+        time.sleep(0.05)
+
+    assert posted["json"]["job_id"] == "job-3"
+    assert posted["json"]["status"] == "failed"
+    assert "Invalid data" in posted["json"]["error"]

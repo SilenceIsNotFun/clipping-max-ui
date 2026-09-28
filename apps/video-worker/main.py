@@ -1,6 +1,7 @@
 import logging
 import os
 import tempfile
+import time
 
 import requests
 from fastapi import BackgroundTasks, FastAPI
@@ -11,6 +12,7 @@ from hook_finder import find_hooks
 from moment_detection import detect_audio_peaks, detect_scene_changes
 from render import render_video
 from schemas import RenderJobInput
+from youtube_download import download_youtube_video
 
 app = FastAPI(title="contentrewardfarm-video-worker")
 logger = logging.getLogger("video-worker")
@@ -160,4 +162,38 @@ def cut_route(payload: dict, background_tasks: BackgroundTasks) -> dict:
         payload["duration_seconds"],
         payload["callback_url"],
     )
+    return {"status": "accepted"}
+
+
+YOUTUBE_PROGRESS_THROTTLE_SECONDS = 2.0
+
+
+def _run_youtube_download(job_id: str, url: str, output_path: str, callback_url: str) -> None:
+    last_post_time = {"value": 0.0}
+
+    def on_progress(progress: dict) -> None:
+        now = time.monotonic()
+        if now - last_post_time["value"] < YOUTUBE_PROGRESS_THROTTLE_SECONDS:
+            return
+        last_post_time["value"] = now
+        _post_callback(callback_url, {"job_id": job_id, "status": "downloading", **progress})
+
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        download_youtube_video(url, output_path, on_progress=on_progress)
+        duration = probe_duration(output_path)
+        _post_callback(
+            callback_url,
+            {"job_id": job_id, "status": "done", "output_path": output_path, "duration_seconds": duration},
+        )
+    except Exception as exc:  # noqa: BLE001 - report any failure to the caller
+        logger.exception("youtube download failed for job_id=%s", job_id)
+        _post_callback(callback_url, {"job_id": job_id, "status": "failed", "error": str(exc)})
+
+
+@app.post("/download-youtube", status_code=202)
+def download_youtube_route(payload: dict, background_tasks: BackgroundTasks) -> dict:
+    output_dir = os.environ.get("VIDEO_ASSETS_DIR", "/app/video-assets")
+    output_path = os.path.join(output_dir, "downloads", f"{payload['job_id']}.mp4")
+    background_tasks.add_task(_run_youtube_download, payload["job_id"], payload["url"], output_path, payload["callback_url"])
     return {"status": "accepted"}
