@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { VideoAsset, uploadAsset } from "../lib/apiClient";
+import { FormEvent, useEffect, useState } from "react";
+import { VideoAsset, getAssetCategories, uploadAsset } from "../lib/apiClient";
 
 export function AssetUpload({
   campaignId,
@@ -12,6 +12,11 @@ export function AssetUpload({
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>(["footage", "clip", "broll", "music", "watermark"]);
+
+  useEffect(() => {
+    getAssetCategories(campaignId).then(setCategories).catch(() => {});
+  }, [campaignId]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -37,15 +42,18 @@ export function AssetUpload({
       onSubmit={handleSubmit}
       className="flex flex-col gap-3 rounded-2xl border border-dashed border-orange-200 bg-orange-50/50 p-5 sm:flex-row sm:items-center"
     >
-      <select
+      <input
+        list="asset-categories"
         name="asset_type"
         defaultValue="footage"
+        placeholder="Category (e.g. footage, broll, music)"
         className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
-      >
-        <option value="footage">🎬 Footage</option>
-        <option value="music">🎵 Music</option>
-        <option value="watermark">💧 Watermark</option>
-      </select>
+      />
+      <datalist id="asset-categories">
+        {categories.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
       <input
         type="file"
         name="file"
