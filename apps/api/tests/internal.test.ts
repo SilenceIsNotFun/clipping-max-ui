@@ -4,6 +4,13 @@ import path from "path";
 import request from "supertest";
 import { createApp } from "../src/server";
 import { getDb, resetDbCacheForTests } from "../src/db";
+import { analyzeAsset } from "../src/services/videoWorkerClient";
+
+jest.mock("../src/services/videoWorkerClient", () => ({
+  analyzeAsset: jest.fn().mockResolvedValue(undefined),
+}));
+
+const mockedAnalyzeAsset = analyzeAsset as jest.Mock;
 
 describe("internal analysis-complete callback", () => {
   let dbPath: string;
@@ -154,6 +161,8 @@ describe("internal hooks-complete callback", () => {
 
   beforeEach(() => {
     resetDbCacheForTests();
+    mockedAnalyzeAsset.mockReset();
+    mockedAnalyzeAsset.mockResolvedValue(undefined);
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "data-"));
     dbPath = path.join(dataDir, "app.db");
     process.env.DB_PATH = dbPath;
@@ -313,6 +322,36 @@ describe("internal hooks-complete callback", () => {
     expect(asset.file_path).toBe("/app/video-assets/downloads/ytjob-2.mp4");
     expect(asset.duration_seconds).toBe(120.5);
     expect(asset.campaign_id).toBe("campaign-1");
+    expect(asset.analysis_status).toBe("pending");
+
+    expect(mockedAnalyzeAsset).toHaveBeenCalledWith(
+      "http://video-worker:8100",
+      job.result_asset_id,
+      "/app/video-assets/downloads/ytjob-2.mp4",
+      `http://api:4000/api/internal/assets/${job.result_asset_id}/analysis-complete`
+    );
+  });
+
+  it("marks the created asset's analysis_status failed when analyzeAsset rejects", async () => {
+    mockedAnalyzeAsset.mockRejectedValueOnce(new Error("video-worker unreachable"));
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-5", "campaign-1", "https://youtube.com/watch?v=x", "downloading", now, now);
+
+    const res = await request(app)
+      .post(`/api/internal/youtube-jobs/ytjob-5/progress`)
+      .send({ job_id: "ytjob-5", status: "done", output_path: "/app/video-assets/downloads/ytjob-5.mp4", duration_seconds: 60 });
+
+    expect(res.status).toBe(200);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-5") as any;
+    expect(job.result_asset_id).toBeTruthy();
+
+    const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(job.result_asset_id) as any;
+    expect(asset.analysis_status).toBe("failed");
   });
 
   it("marks the job failed on error, creating no asset", async () => {
