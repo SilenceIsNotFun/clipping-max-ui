@@ -101,6 +101,20 @@ describe("segment assignment route", () => {
     expect(res.body.duplicate_segment_keys).toEqual(["hook"]);
   });
 
+  it("rejects a blank or whitespace-only segment_key", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          { segment_key: "", video_asset_id: assetId, trim_start: 0, trim_end: 2, order_index: 0, layout_template: "standard" },
+          { segment_key: "   ", video_asset_id: assetId, trim_start: 2, trim_end: 4, order_index: 1, layout_template: "standard" },
+        ],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("every segment needs a label");
+  });
+
   it("accepts a single segment with a custom label, no content_plan match required", async () => {
     const app = createApp();
     const res = await request(app)

@@ -54,6 +54,12 @@ export function createSegmentsRouter(): Router {
       res.status(400).json({ error: "at least one segment is required" });
       return;
     }
+    const blankKeySegments = segments.filter((s) => !s.segment_key || !s.segment_key.trim());
+    if (blankKeySegments.length > 0) {
+      res.status(400).json({ error: "every segment needs a label" });
+      return;
+    }
+
     const providedKeys = segments.map((s) => s.segment_key);
     const seen = new Set<string>();
     const duplicates = new Set<string>();
