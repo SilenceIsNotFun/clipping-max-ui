@@ -149,3 +149,17 @@ export interface CutJob {
   error_message: string | null;
   created_at: string;
 }
+
+export interface YoutubeDownloadJob {
+  id: string;
+  campaign_id: string;
+  url: string;
+  status: "pending" | "downloading" | "done" | "failed";
+  downloaded_bytes: number | null;
+  total_bytes: number | null;
+  speed_bytes_per_sec: number | null;
+  result_asset_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}

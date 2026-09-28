@@ -130,6 +130,20 @@ CREATE TABLE IF NOT EXISTS cut_jobs (
   error_message TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS youtube_download_jobs (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  url TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  downloaded_bytes INTEGER,
+  total_bytes INTEGER,
+  speed_bytes_per_sec REAL,
+  result_asset_id TEXT REFERENCES video_assets(id),
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 // NOTE: intentionally caches by first call only, ignoring subsequent dbPath args — fine since

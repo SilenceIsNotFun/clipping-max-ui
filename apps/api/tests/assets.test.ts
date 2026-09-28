@@ -363,6 +363,29 @@ describe("asset routes", () => {
     expect(remaining).toBeUndefined();
   });
 
+  it("deletes an asset that is referenced by a youtube_download_jobs row without a foreign key error", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+
+    const db = getDb(process.env.DB_PATH as string);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, result_asset_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-1", campaignId, "https://youtube.com/watch?v=x", "done", assetId, now, now);
+
+    const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/${assetId}`);
+    expect(res.status).toBe(204);
+
+    const remaining = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-1");
+    expect(remaining).toBeUndefined();
+  });
+
   it("triggers a cut and returns 202 with a cut_job_id", async () => {
     const app = createApp();
     const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");

@@ -293,4 +293,29 @@ describe("getDb", () => {
     expect(tables).toContain("cut_jobs");
     reopened.close();
   });
+
+  it("creates the youtube_download_jobs table, migrated on an existing DB", () => {
+    resetDbCacheForTests();
+    const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-ytjobs-db-")), "app.db");
+    const oldDb = new Database(oldDbPath);
+    oldDb.exec(`
+      CREATE TABLE campaigns (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    oldDb.close();
+
+    const reopened = getDb(oldDbPath);
+    const tables = reopened
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((row: any) => row.name);
+    expect(tables).toContain("youtube_download_jobs");
+    reopened.close();
+  });
 });

@@ -266,6 +266,7 @@ export function createAssetsRouter(): Router {
       db.prepare("DELETE FROM crop_suggestions WHERE video_asset_id = ?").run(req.params.assetId);
       db.prepare("DELETE FROM hook_suggestions WHERE video_asset_id = ?").run(req.params.assetId);
       db.prepare("DELETE FROM cut_jobs WHERE source_asset_id = ? OR result_asset_id = ?").run(req.params.assetId, req.params.assetId);
+      db.prepare("DELETE FROM youtube_download_jobs WHERE result_asset_id = ?").run(req.params.assetId);
       db.prepare("DELETE FROM video_assets WHERE id = ?").run(req.params.assetId);
     })();
 
