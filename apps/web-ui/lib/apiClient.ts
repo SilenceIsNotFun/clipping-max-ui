@@ -256,6 +256,41 @@ export async function getAssetCategories(campaignId: string): Promise<string[]> 
   return res.json();
 }
 
+export interface YoutubeDownloadJob {
+  id: string;
+  campaign_id: string;
+  url: string;
+  status: "pending" | "downloading" | "done" | "failed";
+  downloaded_bytes: number | null;
+  total_bytes: number | null;
+  speed_bytes_per_sec: number | null;
+  result_asset_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function triggerYoutubeDownload(campaignId: string, url: string): Promise<{ job_id: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/youtube`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `youtube download trigger failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getYoutubeDownloadJob(campaignId: string, jobId: string): Promise<YoutubeDownloadJob> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/youtube-jobs/${jobId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`get youtube download job failed with status ${res.status}`);
+  return res.json();
+}
+
 export async function submitRenderJob(
   campaignId: string,
   ttsVoice: string,
