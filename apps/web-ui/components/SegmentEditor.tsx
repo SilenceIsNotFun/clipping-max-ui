@@ -373,7 +373,7 @@ export function SegmentEditor({
         </div>
       )}
 
-      {asset && asset.analysis_status === "done" && (
+      {asset && asset.analysis_status === "done" && asset.asset_type === "footage" && (
         <div className="flex flex-col gap-2">
           <button
             type="button"
