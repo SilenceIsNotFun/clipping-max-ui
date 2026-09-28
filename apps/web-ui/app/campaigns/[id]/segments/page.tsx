@@ -6,7 +6,6 @@ import {
   CropRect,
   SegmentDraft,
   VideoAsset,
-  getCampaign,
   listAssets,
   saveSegments,
   submitRenderJob,
@@ -24,7 +23,7 @@ function mediaUrl(filePath: string): string {
 export default function SegmentsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [assets, setAssets] = useState<VideoAsset[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, SegmentDraft>>({});
+  const [drafts, setDrafts] = useState<(SegmentDraft & { _clientKey: string })[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [musicAssetId, setMusicAssetId] = useState<string>("");
   const musicAssets = assets.filter((a) => a.asset_type === "music");
@@ -34,28 +33,48 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
   const previewFootageAsset = assets.find((a) => a.asset_type === "footage");
 
   useEffect(() => {
-    Promise.all([listAssets(params.id), getCampaign(params.id)]).then(([assetList, campaign]) => {
-      setAssets(assetList);
-      const segmentKeys = Object.keys(campaign.plan?.content_plan ?? {});
-      const initial: Record<string, SegmentDraft> = {};
-      segmentKeys.forEach((key, index) => {
-        initial[key] = {
-          segment_key: key,
-          video_asset_id: "",
-          trim_start: 0,
-          trim_end: 0,
-          order_index: index,
-          layout_template: "standard",
-        };
-      });
-      setDrafts(initial);
-    });
+    listAssets(params.id).then(setAssets);
   }, [params.id]);
+
+  function addSegment() {
+    setDrafts((prev) => [
+      ...prev,
+      {
+        _clientKey: `${Date.now()}-${Math.random()}`,
+        segment_key: "",
+        video_asset_id: "",
+        trim_start: 0,
+        trim_end: 0,
+        order_index: prev.length,
+        layout_template: "standard",
+      },
+    ]);
+  }
+
+  function removeSegment(clientKey: string) {
+    setDrafts((prev) =>
+      prev.filter((d) => d._clientKey !== clientKey).map((d, i) => ({ ...d, order_index: i }))
+    );
+  }
+
+  function moveSegment(clientKey: string, direction: -1 | 1) {
+    setDrafts((prev) => {
+      const index = prev.findIndex((d) => d._clientKey === clientKey);
+      const target = index + direction;
+      if (index === -1 || target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next.map((d, i) => ({ ...d, order_index: i }));
+    });
+  }
 
   async function handleSubmit() {
     setError(null);
     try {
-      await saveSegments(params.id, Object.values(drafts));
+      await saveSegments(
+        params.id,
+        drafts.map(({ _clientKey, ...draft }) => draft)
+      );
       const job = await submitRenderJob(
         params.id,
         "id_ID-news_tts-medium",
@@ -73,18 +92,52 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
     <main className="flex flex-col gap-5">
       <CampaignBreadcrumb campaignId={params.id} current="Segments" />
       <h1 className="brand-gradient-text text-2xl font-bold sm:text-3xl">Assign Segments</h1>
-      {Object.entries(drafts).map(([key, draft]) => (
-        <SegmentEditor
-          key={key}
-          campaignId={params.id}
-          segmentKey={key}
-          assets={assets}
-          draft={draft}
-          onChange={(updated) =>
-            setDrafts((prev) => ({ ...prev, [key]: { ...prev[key], ...updated } }))
-          }
-        />
+      {drafts.map((draft, index) => (
+        <div key={draft._clientKey} className="flex flex-col gap-2">
+          <SegmentEditor
+            campaignId={params.id}
+            assets={assets}
+            draft={draft}
+            onChange={(updated) =>
+              setDrafts((prev) =>
+                prev.map((d) => (d._clientKey === draft._clientKey ? { ...d, ...updated } : d))
+              )
+            }
+          />
+          <div className="flex gap-2 self-end">
+            <button
+              type="button"
+              onClick={() => moveSegment(draft._clientKey, -1)}
+              disabled={index === 0}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 disabled:opacity-30"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={() => moveSegment(draft._clientKey, 1)}
+              disabled={index === drafts.length - 1}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 disabled:opacity-30"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              onClick={() => removeSegment(draft._clientKey)}
+              className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-500"
+            >
+              🗑️ Remove
+            </button>
+          </div>
+        </div>
       ))}
+      <button
+        type="button"
+        onClick={addSegment}
+        className="w-fit rounded-xl border border-dashed border-purple-300 px-5 py-2.5 text-sm font-semibold text-purple-600 transition hover:bg-purple-50"
+      >
+        + Add Segment
+      </button>
       <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-5">
         <label className="flex flex-col gap-2 text-sm font-medium text-slate-600 sm:flex-row sm:items-center sm:gap-3">
           Background music
