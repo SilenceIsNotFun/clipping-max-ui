@@ -202,11 +202,24 @@ export function createInternalRouter(): Router {
       return;
     }
 
+    if (req.body.status !== "done") {
+      res.status(400).json({ error: "unexpected status" });
+      return;
+    }
+
     const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get(jobId) as
-      | { campaign_id: string }
+      | { campaign_id: string; status: string }
       | undefined;
     if (!job) {
       res.status(404).json({ error: "youtube download job not found" });
+      return;
+    }
+
+    if (job.status === "done") {
+      // Idempotency guard: a retried "done" callback for a job already
+      // recorded as done must be a safe no-op, not a second video_assets
+      // row / overwritten result_asset_id.
+      res.json({ status: "already recorded" });
       return;
     }
 

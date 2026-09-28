@@ -373,4 +373,49 @@ describe("internal hooks-complete callback", () => {
     expect(job.error_message).toBe("yt-dlp exited 1");
     expect(job.result_asset_id).toBeNull();
   });
+
+  it("rejects an unexpected status value with 400 and creates no asset", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-4", "campaign-1", "https://youtube.com/watch?v=x", "downloading", now, now);
+
+    const res = await request(app)
+      .post(`/api/internal/youtube-jobs/ytjob-4/progress`)
+      .send({ job_id: "ytjob-4", status: "some-unexpected-status" });
+
+    expect(res.status).toBe(400);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-4") as any;
+    expect(job.status).toBe("downloading");
+    expect(job.result_asset_id).toBeNull();
+  });
+
+  it("treats a repeated done callback for the same job as a no-op (idempotent)", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-6", "campaign-1", "https://youtube.com/watch?v=x", "downloading", now, now);
+
+    const body = { job_id: "ytjob-6", status: "done", output_path: "/app/video-assets/downloads/ytjob-6.mp4", duration_seconds: 90 };
+
+    const first = await request(app).post(`/api/internal/youtube-jobs/ytjob-6/progress`).send(body);
+    expect(first.status).toBe(200);
+
+    const second = await request(app).post(`/api/internal/youtube-jobs/ytjob-6/progress`).send(body);
+    expect(second.status).toBe(200);
+
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-6") as any;
+    const assets = db.prepare("SELECT * FROM video_assets WHERE campaign_id = ? AND file_path = ?").all(
+      "campaign-1",
+      "/app/video-assets/downloads/ytjob-6.mp4"
+    );
+    expect(assets).toHaveLength(1);
+    expect(job.result_asset_id).toBe((assets[0] as any).id);
+  });
 });
