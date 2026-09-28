@@ -269,4 +269,69 @@ describe("internal hooks-complete callback", () => {
     expect(job.error_message).toBe("ffmpeg exited 1");
     expect(job.result_asset_id).toBeNull();
   });
+
+  it("updates progress fields on a downloading update", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-1", "campaign-1", "https://youtube.com/watch?v=x", "pending", now, now);
+
+    const res = await request(app)
+      .post(`/api/internal/youtube-jobs/ytjob-1/progress`)
+      .send({ job_id: "ytjob-1", status: "downloading", downloaded_bytes: 1000, total_bytes: 5000, speed_bytes_per_sec: 200 });
+
+    expect(res.status).toBe(200);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-1") as any;
+    expect(job.status).toBe("downloading");
+    expect(job.downloaded_bytes).toBe(1000);
+    expect(job.total_bytes).toBe(5000);
+  });
+
+  it("creates a footage asset and marks the job done on success", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-2", "campaign-1", "https://youtube.com/watch?v=x", "downloading", now, now);
+
+    const res = await request(app)
+      .post(`/api/internal/youtube-jobs/ytjob-2/progress`)
+      .send({ job_id: "ytjob-2", status: "done", output_path: "/app/video-assets/downloads/ytjob-2.mp4", duration_seconds: 120.5 });
+
+    expect(res.status).toBe(200);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-2") as any;
+    expect(job.status).toBe("done");
+    expect(job.result_asset_id).toBeTruthy();
+
+    const asset = db.prepare("SELECT * FROM video_assets WHERE id = ?").get(job.result_asset_id) as any;
+    expect(asset.asset_type).toBe("footage");
+    expect(asset.file_path).toBe("/app/video-assets/downloads/ytjob-2.mp4");
+    expect(asset.duration_seconds).toBe(120.5);
+    expect(asset.campaign_id).toBe("campaign-1");
+  });
+
+  it("marks the job failed on error, creating no asset", async () => {
+    const app = createApp();
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-3", "campaign-1", "https://youtube.com/watch?v=x", "downloading", now, now);
+
+    const res = await request(app)
+      .post(`/api/internal/youtube-jobs/ytjob-3/progress`)
+      .send({ job_id: "ytjob-3", status: "failed", error: "yt-dlp exited 1" });
+
+    expect(res.status).toBe(200);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get("ytjob-3") as any;
+    expect(job.status).toBe("failed");
+    expect(job.error_message).toBe("yt-dlp exited 1");
+    expect(job.result_asset_id).toBeNull();
+  });
 });

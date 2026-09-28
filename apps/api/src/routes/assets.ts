@@ -218,6 +218,16 @@ export function createAssetsRouter(): Router {
     res.status(202).json({ job_id: jobId });
   }));
 
+  router.get("/youtube-jobs/:jobId", (req, res) => {
+    const db = getDb(dbPath);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get(req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "youtube download job not found" });
+      return;
+    }
+    res.json(job);
+  });
+
   router.post("/:assetId/cut", asyncHandler(async (req, res) => {
     const db = getDb(dbPath);
     const campaignId = (req.params as { id: string }).id;

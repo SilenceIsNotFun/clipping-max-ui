@@ -543,4 +543,24 @@ describe("asset routes", () => {
     const res = await request(app).post(`/api/campaigns/${campaignId}/assets/youtube`).send({ url: "not a url" });
     expect(res.status).toBe(400);
   });
+
+  it("returns a youtube_download_jobs row by id", async () => {
+    const app = createApp();
+    const db = getDb(process.env.DB_PATH as string);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run("ytjob-4", campaignId, "https://youtube.com/watch?v=x", "pending", now, now);
+
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/youtube-jobs/ytjob-4`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("pending");
+  });
+
+  it("returns 404 for an unknown youtube_download_jobs id", async () => {
+    const app = createApp();
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/youtube-jobs/does-not-exist`);
+    expect(res.status).toBe(404);
+  });
 });

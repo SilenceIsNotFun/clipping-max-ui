@@ -1,10 +1,14 @@
 import { randomUUID } from "crypto";
 import express, { Router } from "express";
+import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
+import { analyzeAsset } from "../services/videoWorkerClient";
 
 export function createInternalRouter(): Router {
   const router = express.Router();
   const dbPath = process.env.DB_PATH ?? "/app/data/app.db";
+  const videoWorkerUrl = process.env.VIDEO_WORKER_URL ?? "http://video-worker:8100";
+  const callbackBase = process.env.API_INTERNAL_CALLBACK_URL ?? "http://api:4000/api/internal";
 
   router.post("/assets/:assetId/analysis-complete", (req, res) => {
     const db = getDb(dbPath);
@@ -163,6 +167,71 @@ export function createInternalRouter(): Router {
     db.prepare("UPDATE cut_jobs SET status = ?, result_asset_id = ? WHERE id = ?").run("done", clipId, jobId);
     res.json({ status: "recorded" });
   });
+
+  router.post("/youtube-jobs/:jobId/progress", asyncHandler(async (req, res) => {
+    const db = getDb(dbPath);
+    const { jobId } = req.params;
+    const now = new Date().toISOString();
+
+    if (req.body.status === "downloading") {
+      db.prepare(
+        `UPDATE youtube_download_jobs
+         SET status = ?, downloaded_bytes = ?, total_bytes = ?, speed_bytes_per_sec = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(
+        "downloading",
+        req.body.downloaded_bytes ?? null,
+        req.body.total_bytes ?? null,
+        req.body.speed_bytes_per_sec ?? null,
+        now,
+        jobId
+      );
+      res.json({ status: "recorded" });
+      return;
+    }
+
+    if (req.body.status === "failed") {
+      console.error(`youtube download failed for job ${jobId}:`, req.body.error);
+      db.prepare("UPDATE youtube_download_jobs SET status = ?, error_message = ?, updated_at = ? WHERE id = ?").run(
+        "failed",
+        req.body.error,
+        now,
+        jobId
+      );
+      res.json({ status: "recorded" });
+      return;
+    }
+
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get(jobId) as
+      | { campaign_id: string }
+      | undefined;
+    if (!job) {
+      res.status(404).json({ error: "youtube download job not found" });
+      return;
+    }
+
+    const assetId = randomUUID();
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(assetId, job.campaign_id, req.body.output_path, "footage", req.body.duration_seconds, "pending", now);
+
+    db.prepare("UPDATE youtube_download_jobs SET status = ?, result_asset_id = ?, updated_at = ? WHERE id = ?").run(
+      "done",
+      assetId,
+      now,
+      jobId
+    );
+
+    try {
+      await analyzeAsset(videoWorkerUrl, assetId, req.body.output_path, `${callbackBase}/assets/${assetId}/analysis-complete`);
+    } catch (err) {
+      console.error(`analyze trigger failed for downloaded asset ${assetId}:`, err);
+      db.prepare("UPDATE video_assets SET analysis_status = ? WHERE id = ?").run("failed", assetId);
+    }
+
+    res.json({ status: "recorded" });
+  }));
 
   return router;
 }
