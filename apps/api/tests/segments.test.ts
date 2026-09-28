@@ -81,18 +81,36 @@ describe("segment assignment route", () => {
     expect(hookRow.caption_style).toBe("energetic");
   });
 
-  it("rejects when a content_plan segment is missing", async () => {
+  it("rejects an empty segments array", async () => {
+    const app = createApp();
+    const res = await request(app).put(`/api/campaigns/${campaignId}/segments`).send({ segments: [] });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects duplicate segment_key values", async () => {
     const app = createApp();
     const res = await request(app)
       .put(`/api/campaigns/${campaignId}/segments`)
       .send({
         segments: [
           { segment_key: "hook", video_asset_id: assetId, trim_start: 0, trim_end: 2, order_index: 0, layout_template: "standard" },
+          { segment_key: "hook", video_asset_id: assetId, trim_start: 2, trim_end: 4, order_index: 1, layout_template: "standard" },
         ],
       });
-
     expect(res.status).toBe(400);
-    expect(res.body.missing_segments).toEqual(["body"]);
+    expect(res.body.duplicate_segment_keys).toEqual(["hook"]);
+  });
+
+  it("accepts a single segment with a custom label, no content_plan match required", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          { segment_key: "broll-intro", video_asset_id: assetId, trim_start: 0, trim_end: 2, order_index: 0, layout_template: "standard" },
+        ],
+      });
+    expect(res.status).toBe(200);
   });
 
   it("rejects gameplay_full_focus without crop_gameplay_rect", async () => {

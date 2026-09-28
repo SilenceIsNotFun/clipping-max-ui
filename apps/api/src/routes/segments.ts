@@ -50,11 +50,19 @@ export function createSegmentsRouter(): Router {
       res.status(404).json({ error: "no plan found for this campaign" });
       return;
     }
-    const requiredKeys = Object.keys(JSON.parse(plan.content_plan));
+    if (segments.length === 0) {
+      res.status(400).json({ error: "at least one segment is required" });
+      return;
+    }
     const providedKeys = segments.map((s) => s.segment_key);
-    const missingSegments = requiredKeys.filter((k) => !providedKeys.includes(k));
-    if (missingSegments.length > 0) {
-      res.status(400).json({ missing_segments: missingSegments });
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const key of providedKeys) {
+      if (seen.has(key)) duplicates.add(key);
+      seen.add(key);
+    }
+    if (duplicates.size > 0) {
+      res.status(400).json({ duplicate_segment_keys: Array.from(duplicates) });
       return;
     }
 
