@@ -14,6 +14,7 @@ import {
   getCropSuggestion,
   getCutJob,
   getHookSuggestions,
+  listAssets,
   listMoments,
   triggerCut,
 } from "../lib/apiClient";
@@ -40,11 +41,13 @@ export function SegmentEditor({
   assets,
   draft,
   onChange,
+  onAssetCreated,
 }: {
   campaignId: string;
   assets: VideoAsset[];
   draft: SegmentDraft;
   onChange: (draft: SegmentDraft) => void;
+  onAssetCreated: () => Promise<void>;
 }) {
   const [moments, setMoments] = useState<MomentCandidate[]>([]);
   const [cropSuggestion, setCropSuggestion] = useState<CropSuggestion | null>(null);
@@ -52,6 +55,12 @@ export function SegmentEditor({
   const [findingHooks, setFindingHooks] = useState(false);
   const [hookError, setHookError] = useState<string | null>(null);
   const asset = assets.find((a) => a.id === draft.video_asset_id);
+
+  // Kept in sync with the latest draft on every render so the cut-poll
+  // callback (which closes over values from the render in which handleCut
+  // was invoked) never reverts concurrent edits made while the cut runs.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const [cutStartSeconds, setCutStartSeconds] = useState(0);
   const [cutDurationSeconds, setCutDurationSeconds] = useState(0);
@@ -98,7 +107,31 @@ export function SegmentEditor({
         if (job.status === "done" && job.result_asset_id) {
           stopCutPolling();
           setCutting(false);
-          onChange({ ...draft, video_asset_id: job.result_asset_id, trim_start: 0, trim_end: cutDurationSeconds });
+
+          // The new clip asset was just created server-side and isn't in
+          // the parent's `assets` state yet -- refresh it first so the
+          // asset lookups below (and the re-render this component gets
+          // once onChange fires) can find it.
+          await onAssetCreated();
+
+          // Prefer the actual trimmed duration over cutDurationSeconds
+          // (the *requested* duration, which can differ from what ffmpeg
+          // actually produced) for trim_end.
+          let trimEnd = cutDurationSeconds;
+          try {
+            const latestAssets = await listAssets(campaignId);
+            const newAsset = latestAssets.find((a) => a.id === job.result_asset_id);
+            if (newAsset) trimEnd = newAsset.duration_seconds;
+          } catch {
+            // fall back to the requested duration if the lookup fails
+          }
+
+          onChange({
+            ...draftRef.current,
+            video_asset_id: job.result_asset_id,
+            trim_start: 0,
+            trim_end: trimEnd,
+          });
         } else if (job.status === "failed") {
           stopCutPolling();
           setCutting(false);

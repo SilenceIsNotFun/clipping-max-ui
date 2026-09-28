@@ -32,8 +32,13 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
   const watermarkAssets = assets.filter((a) => a.asset_type === "watermark");
   const previewFootageAsset = assets.find((a) => a.asset_type === "footage");
 
+  async function refreshAssets() {
+    const latest = await listAssets(params.id);
+    setAssets(latest);
+  }
+
   useEffect(() => {
-    listAssets(params.id).then(setAssets);
+    refreshAssets();
   }, [params.id]);
 
   function addSegment() {
@@ -68,8 +73,14 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
     });
   }
 
+  const hasBlankLabel = drafts.some((d) => !d.segment_key.trim());
+
   async function handleSubmit() {
     setError(null);
+    if (hasBlankLabel) {
+      setError("Every segment needs a label before you can submit.");
+      return;
+    }
     try {
       await saveSegments(
         params.id,
@@ -103,6 +114,7 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
                 prev.map((d) => (d._clientKey === draft._clientKey ? { ...d, ...updated } : d))
               )
             }
+            onAssetCreated={refreshAssets}
           />
           <div className="flex gap-2 self-end">
             <button
@@ -193,10 +205,14 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
       <button
         type="button"
         onClick={handleSubmit}
-        className="w-fit rounded-xl bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-200 transition hover:opacity-90"
+        disabled={hasBlankLabel}
+        className="w-fit rounded-xl bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-200 transition hover:opacity-90 disabled:opacity-50"
       >
         Submit Render 🎬
       </button>
+      {hasBlankLabel && (
+        <p className="text-sm font-medium text-rose-500">Every segment needs a label before you can submit.</p>
+      )}
       {error && (
         <p role="alert" className="text-sm font-medium text-rose-500">
           {error}
