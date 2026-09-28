@@ -5,6 +5,7 @@ import Link from "next/link";
 import { VideoAsset, listAssets } from "../../../../lib/apiClient";
 import { AssetUpload } from "../../../../components/AssetUpload";
 import { AssetList } from "../../../../components/AssetList";
+import { CampaignBreadcrumb } from "../../../../components/CampaignBreadcrumb";
 
 export default function AssetsPage({ params }: { params: { id: string } }) {
   const [assets, setAssets] = useState<VideoAsset[]>([]);
@@ -19,6 +20,7 @@ export default function AssetsPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="flex flex-col gap-6">
+      <CampaignBreadcrumb campaignId={params.id} current="Assets" />
       <h1 className="brand-gradient-text text-2xl font-bold sm:text-3xl">Footage & Music</h1>
       <AssetUpload campaignId={params.id} onUploaded={refresh} />
       <AssetList campaignId={params.id} assets={assets} onDeleted={refresh} />

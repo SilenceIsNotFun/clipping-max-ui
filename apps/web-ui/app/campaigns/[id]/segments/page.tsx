@@ -13,6 +13,7 @@ import {
 } from "../../../../lib/apiClient";
 import { SegmentEditor } from "../../../../components/SegmentEditor";
 import { CropCanvas } from "../../../../components/CropCanvas";
+import { CampaignBreadcrumb } from "../../../../components/CampaignBreadcrumb";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -70,6 +71,7 @@ export default function SegmentsPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="flex flex-col gap-5">
+      <CampaignBreadcrumb campaignId={params.id} current="Segments" />
       <h1 className="brand-gradient-text text-2xl font-bold sm:text-3xl">Assign Segments</h1>
       {Object.entries(drafts).map(([key, draft]) => (
         <SegmentEditor

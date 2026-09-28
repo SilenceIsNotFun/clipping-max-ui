@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CampaignDetail as CampaignDetailType, getCampaign } from "../../../lib/apiClient";
 import { CampaignDetail } from "../../../components/CampaignDetail";
+import { CampaignBreadcrumb } from "../../../components/CampaignBreadcrumb";
 
 export default function CampaignDetailPage({ params }: { params: { id: string } }) {
   const [campaign, setCampaign] = useState<CampaignDetailType | null>(null);
@@ -24,6 +25,17 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
         {error}
       </p>
     );
-  if (!campaign) return <p className="text-slate-400">Loading...</p>;
-  return <CampaignDetail campaign={campaign} onPlanned={refresh} />;
+  if (!campaign)
+    return (
+      <div className="flex flex-col gap-4">
+        <CampaignBreadcrumb campaignId={params.id} />
+        <p className="text-slate-400">Loading...</p>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-4">
+      <CampaignBreadcrumb campaignId={params.id} />
+      <CampaignDetail campaign={campaign} onPlanned={refresh} />
+    </div>
+  );
 }
