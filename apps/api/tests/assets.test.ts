@@ -303,4 +303,40 @@ describe("asset routes", () => {
     expect(res.body).toHaveLength(1);
     expect(res.body[0].title).toBe("Title A");
   });
+
+  it("uploads a watermark image without probing duration", async () => {
+    const app = createApp();
+    const pngPath = path.join(os.tmpdir(), "logo.png");
+    // Minimal valid 1x1 PNG (smallest legal PNG file bytes).
+    fs.writeFileSync(
+      pngPath,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64"
+      )
+    );
+
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "watermark")
+      .attach("file", pngPath);
+
+    expect(res.status).toBe(201);
+    expect(res.body.asset_type).toBe("watermark");
+    expect(res.body.duration_seconds).toBe(0);
+    expect(res.body.analysis_status).toBe("done");
+  });
+
+  it("rejects a watermark upload that isn't an image", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "watermark")
+      .attach("file", fixture);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/image/i);
+  });
 });

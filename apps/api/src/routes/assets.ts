@@ -44,12 +44,23 @@ export function createAssetsRouter(): Router {
       res.status(400).json({ error: "file is required" });
       return;
     }
-    const assetType = req.body.asset_type === "music" ? "music" : "footage";
-    const duration = probeDurationSeconds(file.path);
-    if (duration <= 0) {
-      fs.unlinkSync(file.path);
-      res.status(400).json({ error: "file is not a readable audio/video file" });
-      return;
+    const assetType: "footage" | "music" | "watermark" =
+      req.body.asset_type === "music" ? "music" : req.body.asset_type === "watermark" ? "watermark" : "footage";
+
+    let duration = 0;
+    if (assetType === "watermark") {
+      if (file.mimetype !== "image/png" && file.mimetype !== "image/jpeg") {
+        fs.unlinkSync(file.path);
+        res.status(400).json({ error: "watermark must be a PNG or JPEG image" });
+        return;
+      }
+    } else {
+      duration = probeDurationSeconds(file.path);
+      if (duration <= 0) {
+        fs.unlinkSync(file.path);
+        res.status(400).json({ error: "file is not a readable audio/video file" });
+        return;
+      }
     }
 
     const finalPath = path.join(videoAssetsDir, `${file.filename}${path.extname(file.originalname)}`);

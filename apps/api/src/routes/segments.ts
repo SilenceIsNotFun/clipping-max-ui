@@ -13,6 +13,7 @@ interface SegmentPayload {
   crop_gameplay_rect?: Record<string, number>;
   crop_facecam_rect?: Record<string, number>;
   title_text?: string;
+  title_rect?: Record<string, number>;
   caption_style?: string;
 }
 
@@ -105,8 +106,8 @@ export function createSegmentsRouter(): Router {
     const deleteExisting = db.prepare("DELETE FROM segment_assignments WHERE campaign_id = ?");
     const insert = db.prepare(
       `INSERT INTO segment_assignments
-       (id, campaign_id, segment_key, video_asset_id, secondary_video_asset_id, trim_start, trim_end, order_index, layout_template, crop_gameplay_rect, crop_facecam_rect, title_text, caption_style)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, campaign_id, segment_key, video_asset_id, secondary_video_asset_id, trim_start, trim_end, order_index, layout_template, crop_gameplay_rect, crop_facecam_rect, title_text, caption_style, title_rect)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const replaceAll = db.transaction((rows: SegmentPayload[]) => {
       deleteExisting.run(campaignId);
@@ -124,7 +125,8 @@ export function createSegmentsRouter(): Router {
           s.crop_gameplay_rect ? JSON.stringify(s.crop_gameplay_rect) : null,
           s.crop_facecam_rect ? JSON.stringify(s.crop_facecam_rect) : null,
           s.title_text ?? null,
-          s.caption_style ?? null
+          s.caption_style ?? null,
+          s.title_rect ? JSON.stringify(s.title_rect) : null
         );
       }
     });

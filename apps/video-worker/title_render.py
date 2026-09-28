@@ -1,4 +1,8 @@
+from typing import Optional
+
 from PIL import Image, ImageDraw, ImageFont
+
+from schemas import CropRect
 
 CANVAS_W = 1080
 CANVAS_H = 1920
@@ -21,19 +25,31 @@ def _load_font() -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def render_title_png(title_text: str, output_path: str) -> None:
+def render_title_png(title_text: str, output_path: str, rect: Optional[CropRect] = None) -> None:
     """Renders title_text onto a transparent 1080x1920 PNG canvas: white fill,
-    black stroke, drop shadow, horizontally centered near the top. Unlike
-    ffmpeg's drawtext filter, this has no filter-graph escaping concerns --
-    apostrophes, colons, percent signs, etc. are handled natively by Pillow."""
+    black stroke, drop shadow. Unlike ffmpeg's drawtext filter, this has no
+    filter-graph escaping concerns -- apostrophes, colons, percent signs,
+    etc. are handled natively by Pillow.
+
+    When `rect` is given, the text is horizontally centered within
+    [rect.x*CANVAS_W, (rect.x+rect.width)*CANVAS_W] and vertically anchored
+    at rect.y*CANVAS_H, instead of the default full-width-centered/fixed-Y
+    position. rect.height is unused (title text is single-line)."""
     img = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     font = _load_font()
 
     bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=STROKE_WIDTH)
     text_w = bbox[2] - bbox[0]
-    x = (CANVAS_W - text_w) / 2 - bbox[0]
-    y = TITLE_Y
+
+    if rect is not None:
+        region_x0 = rect.x * CANVAS_W
+        region_w = rect.width * CANVAS_W
+        x = region_x0 + (region_w - text_w) / 2 - bbox[0]
+        y = rect.y * CANVAS_H
+    else:
+        x = (CANVAS_W - text_w) / 2 - bbox[0]
+        y = TITLE_Y
 
     draw.text(
         (x + SHADOW_OFFSET, y + SHADOW_OFFSET),

@@ -96,6 +96,137 @@ describe("render routes", () => {
     expect(job.error_message).toBe("video-worker unreachable");
   });
 
+  it("resolves watermark_asset_id to a file path and passes watermark_rect through to submitRender", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("watermark-asset-1", campaignId, "/app/video-assets/logo.png", "watermark", 0, "done", now);
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "watermark-asset-1",
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(202);
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    expect(callArgs[5]).toBe("/app/video-assets/logo.png"); // watermarkPath
+    expect(callArgs[6]).toEqual({ x: 0.7, y: 0.05, width: 0.25, height: 0.1 }); // watermarkRect
+
+    const job = db.prepare("SELECT * FROM render_jobs WHERE id = ?").get(res.body.job_id) as any;
+    expect(job.watermark_asset_id).toBe("watermark-asset-1");
+    expect(JSON.parse(job.watermark_rect)).toEqual({ x: 0.7, y: 0.05, width: 0.25, height: 0.1 });
+  });
+
+  it("rejects watermark_asset_id without watermark_rect with a 400", async () => {
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("watermark-asset-2", campaignId, "/app/video-assets/logo2.png", "watermark", 0, "done", now);
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "watermark-asset-2",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_rect is required when watermark_asset_id is set" });
+
+    const jobRows = db.prepare("SELECT * FROM render_jobs WHERE campaign_id = ?").all(campaignId);
+    expect(jobRows.length).toBe(0);
+  });
+
+  it("rejects a nonexistent watermark_asset_id with a 400, not a 500", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "does-not-exist",
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+  });
+
+  it("rejects a watermark_asset_id belonging to a different campaign with a 400", async () => {
+    const db = getDb(dbPath);
+    const now = new Date().toISOString();
+    const otherCampaignId = "campaign-other";
+    db.prepare(
+      `INSERT INTO campaigns (id, title, status, source_file_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(otherCampaignId, "Other", "planned", "/y.pdf", now, now);
+    db.prepare(
+      `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("watermark-other-campaign", otherCampaignId, "/app/video-assets/other-logo.png", "watermark", 0, "done", now);
+
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: "watermark-other-campaign",
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+  });
+
+  it("rejects a watermark_asset_id pointing to a non-watermark asset with a 400", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/render`)
+      .send({
+        tts_voice: "id_ID-news_tts-medium",
+        watermark_asset_id: assetId, // this is a "footage" asset from beforeEach
+        watermark_rect: { x: 0.7, y: 0.05, width: 0.25, height: 0.1 },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+  });
+
+  it("submits a render with no watermark and passes null watermark fields", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const app = createApp();
+    const res = await request(app).post(`/api/campaigns/${campaignId}/render`).send({ tts_voice: "id_ID-news_tts-medium" });
+
+    expect(res.status).toBe(202);
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    expect(callArgs[5]).toBeNull();
+    expect(callArgs[6]).toBeNull();
+  });
+
+  it("includes title_rect in the segment payload sent to submitRender", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const db = getDb(dbPath);
+    db.prepare("UPDATE segment_assignments SET title_rect = ? WHERE campaign_id = ?").run(
+      JSON.stringify({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 }),
+      campaignId
+    );
+
+    const app = createApp();
+    await request(app).post(`/api/campaigns/${campaignId}/render`).send({ tts_voice: "id_ID-news_tts-medium" });
+
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    const segmentPayloads = callArgs[2];
+    expect(segmentPayloads[0].title_rect).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
+  });
+
   it("finalizes a ready render job", async () => {
     const app = createApp();
     const db = getDb(dbPath);

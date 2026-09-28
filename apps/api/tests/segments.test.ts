@@ -139,4 +139,32 @@ describe("segment assignment route", () => {
     expect(res.status).toBe(400);
     expect(res.body.unknown_asset_segments).toEqual(["hook"]);
   });
+
+  it("persists title_rect when provided", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          {
+            segment_key: "hook",
+            video_asset_id: assetId,
+            trim_start: 0,
+            trim_end: 5,
+            order_index: 0,
+            layout_template: "standard",
+            title_text: "Hello",
+            title_rect: { x: 0.1, y: 0.8, width: 0.8, height: 0.1 },
+          },
+          { segment_key: "body", video_asset_id: assetId, trim_start: 2, trim_end: 4, order_index: 1, layout_template: "standard" },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const row = db
+      .prepare("SELECT * FROM segment_assignments WHERE campaign_id = ? AND segment_key = ?")
+      .get(campaignId, "hook") as any;
+    expect(JSON.parse(row.title_rect)).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
+  });
 });

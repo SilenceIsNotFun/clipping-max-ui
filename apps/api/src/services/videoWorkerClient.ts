@@ -9,6 +9,7 @@ export interface RenderSegmentPayload {
   crop_gameplay_rect?: Record<string, number>;
   crop_facecam_rect?: Record<string, number>;
   title_text?: string;
+  title_rect?: Record<string, number>;
   caption_style?: string;
 }
 
@@ -32,6 +33,8 @@ export async function submitRender(
   segments: RenderSegmentPayload[],
   ttsVoice: string,
   musicPath: string | null,
+  watermarkPath: string | null,
+  watermarkRect: Record<string, number> | null,
   callbackUrl: string
 ): Promise<void> {
   const res = await fetch(`${videoWorkerUrl}/render`, {
@@ -42,6 +45,8 @@ export async function submitRender(
       segments,
       tts_voice: ttsVoice,
       music_path: musicPath,
+      watermark_path: watermarkPath,
+      watermark_rect: watermarkRect,
       callback_url: callbackUrl,
     }),
   });

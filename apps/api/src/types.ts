@@ -48,7 +48,7 @@ export interface VideoAsset {
   id: string;
   campaign_id: string;
   file_path: string;
-  asset_type: "footage" | "music";
+  asset_type: "footage" | "music" | "watermark";
   duration_seconds: number;
   analysis_status: "pending" | "done" | "failed";
   hook_status: "none" | "pending" | "done" | "failed";
@@ -111,6 +111,7 @@ export interface SegmentAssignment {
   crop_facecam_rect: string | null; // JSON-encoded CropRect
   title_text: string | null;
   caption_style: string | null;
+  title_rect: string | null; // JSON-encoded CropRect
 }
 
 export type RenderJobStatus = "queued" | "rendering" | "ready_for_preview" | "final" | "failed";
@@ -121,6 +122,8 @@ export interface RenderJob {
   status: RenderJobStatus;
   tts_voice: string;
   music_asset_id: string | null;
+  watermark_asset_id: string | null;
+  watermark_rect: string | null; // JSON-encoded CropRect
   output_path: string | null;
   error_message: string | null;
   created_at: string;

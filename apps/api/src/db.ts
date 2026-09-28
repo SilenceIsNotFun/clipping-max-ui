@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS segment_assignments (
   crop_gameplay_rect TEXT,
   crop_facecam_rect TEXT,
   title_text TEXT,
-  caption_style TEXT
+  caption_style TEXT,
+  title_rect TEXT
 );
 
 CREATE TABLE IF NOT EXISTS render_jobs (
@@ -102,6 +103,8 @@ CREATE TABLE IF NOT EXISTS render_jobs (
   status TEXT NOT NULL,
   tts_voice TEXT NOT NULL,
   music_asset_id TEXT REFERENCES video_assets(id),
+  watermark_asset_id TEXT REFERENCES video_assets(id),
+  watermark_rect TEXT,
   output_path TEXT,
   error_message TEXT,
   created_at TEXT NOT NULL,
@@ -136,6 +139,18 @@ export function getDb(dbPath: string): Database.Database {
   const segmentAssignmentColumns = db.prepare("PRAGMA table_info(segment_assignments)").all() as { name: string }[];
   if (!segmentAssignmentColumns.some((c) => c.name === "caption_style")) {
     db.exec("ALTER TABLE segment_assignments ADD COLUMN caption_style TEXT");
+  }
+  if (!segmentAssignmentColumns.some((c) => c.name === "title_rect")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN title_rect TEXT");
+  }
+
+  // Migration path for DBs created before watermark_asset_id and watermark_rect were added to render_jobs.
+  const renderJobColumns = db.prepare("PRAGMA table_info(render_jobs)").all() as { name: string }[];
+  if (!renderJobColumns.some((c) => c.name === "watermark_asset_id")) {
+    db.exec("ALTER TABLE render_jobs ADD COLUMN watermark_asset_id TEXT REFERENCES video_assets(id)");
+  }
+  if (!renderJobColumns.some((c) => c.name === "watermark_rect")) {
+    db.exec("ALTER TABLE render_jobs ADD COLUMN watermark_rect TEXT");
   }
 
   // Migration path for DBs created before hook_status was added to video_assets.

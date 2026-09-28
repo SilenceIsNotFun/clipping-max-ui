@@ -32,15 +32,46 @@ export function createRenderRouter(): Router {
       assetPathById.set(row.id, row.file_path);
     }
 
-    const jobId = randomUUID();
-    const now = new Date().toISOString();
     const musicAssetId: string | null = req.body.music_asset_id ?? null;
+    const watermarkAssetId: string | null = req.body.watermark_asset_id ?? null;
+    const watermarkRect: Record<string, number> | null = req.body.watermark_rect ?? null;
     const ttsVoice: string = req.body.tts_voice ?? "id_ID-news_tts-medium";
 
+    let watermarkPath: string | null = null;
+    if (watermarkAssetId) {
+      if (!watermarkRect) {
+        res.status(400).json({ error: "watermark_rect is required when watermark_asset_id is set" });
+        return;
+      }
+      const watermarkAsset = db
+        .prepare("SELECT file_path FROM video_assets WHERE id = ? AND campaign_id = ? AND asset_type = 'watermark'")
+        .get(watermarkAssetId, campaignId) as { file_path: string } | undefined;
+      if (!watermarkAsset) {
+        res.status(400).json({ error: "watermark_asset_id does not refer to a valid watermark asset in this campaign" });
+        return;
+      }
+      watermarkPath = watermarkAsset.file_path;
+    }
+
+    const jobId = randomUUID();
+    const now = new Date().toISOString();
+
     db.prepare(
-      `INSERT INTO render_jobs (id, campaign_id, status, tts_voice, music_asset_id, output_path, error_message, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(jobId, campaignId, "rendering", ttsVoice, musicAssetId, null, null, now, now);
+      `INSERT INTO render_jobs (id, campaign_id, status, tts_voice, music_asset_id, watermark_asset_id, watermark_rect, output_path, error_message, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      jobId,
+      campaignId,
+      "rendering",
+      ttsVoice,
+      musicAssetId,
+      watermarkAssetId,
+      watermarkRect ? JSON.stringify(watermarkRect) : null,
+      null,
+      null,
+      now,
+      now
+    );
 
     const segmentPayloads: RenderSegmentPayload[] = segments.map((s) => ({
       file_path: assetPathById.get(s.video_asset_id) ?? "",
@@ -53,6 +84,7 @@ export function createRenderRouter(): Router {
       crop_gameplay_rect: s.crop_gameplay_rect ? JSON.parse(s.crop_gameplay_rect) : undefined,
       crop_facecam_rect: s.crop_facecam_rect ? JSON.parse(s.crop_facecam_rect) : undefined,
       title_text: s.title_text ?? undefined,
+      title_rect: s.title_rect ? JSON.parse(s.title_rect) : undefined,
       caption_style: s.caption_style ?? undefined,
     }));
 
@@ -65,6 +97,8 @@ export function createRenderRouter(): Router {
         segmentPayloads,
         ttsVoice,
         musicPath,
+        watermarkPath,
+        watermarkRect,
         `${callbackBase}/render/${jobId}/complete`
       );
     } catch (err) {
