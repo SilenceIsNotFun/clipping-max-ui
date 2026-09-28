@@ -66,6 +66,7 @@ export function SegmentEditor({
   const [cutDurationSeconds, setCutDurationSeconds] = useState(0);
   const [cutting, setCutting] = useState(false);
   const [cutError, setCutError] = useState<string | null>(null);
+  const [appliedHookReasoning, setAppliedHookReasoning] = useState<string | null>(null);
   const cutPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function stopCutPolling() {
@@ -86,13 +87,22 @@ export function SegmentEditor({
   const [cutSourceAssetId, setCutSourceAssetId] = useState("");
   const cutSourceAsset = assets.find((a) => a.id === cutSourceAssetId);
 
-  async function handleCut() {
-    if (!cutSourceAsset || cutDurationSeconds <= 0) return;
+  // Shared by the manual "Potong & Gunakan" button and applyHookSuggestion
+  // below -- both trigger a cut, poll for completion, and land the result on
+  // the segment the same way; extraFields lets the caller merge in anything
+  // beyond video_asset_id/trim_start/trim_end (e.g. title_text from a hook).
+  async function startCutAndApply(
+    sourceAssetId: string,
+    startSeconds: number,
+    durationSeconds: number,
+    extraFields: Partial<SegmentDraft> = {}
+  ) {
+    if (durationSeconds <= 0) return;
     setCutting(true);
     setCutError(null);
     let jobId: string;
     try {
-      const result = await triggerCut(campaignId, cutSourceAsset.id, cutStartSeconds, cutDurationSeconds);
+      const result = await triggerCut(campaignId, sourceAssetId, startSeconds, durationSeconds);
       jobId = result.cut_job_id;
     } catch (err) {
       setCutError((err as Error).message);
@@ -114,10 +124,10 @@ export function SegmentEditor({
           // once onChange fires) can find it.
           await onAssetCreated();
 
-          // Prefer the actual trimmed duration over cutDurationSeconds
+          // Prefer the actual trimmed duration over durationSeconds
           // (the *requested* duration, which can differ from what ffmpeg
           // actually produced) for trim_end.
-          let trimEnd = cutDurationSeconds;
+          let trimEnd = durationSeconds;
           try {
             const latestAssets = await listAssets(campaignId);
             const newAsset = latestAssets.find((a) => a.id === job.result_asset_id);
@@ -128,6 +138,7 @@ export function SegmentEditor({
 
           onChange({
             ...draftRef.current,
+            ...extraFields,
             video_asset_id: job.result_asset_id,
             trim_start: 0,
             trim_end: trimEnd,
@@ -141,6 +152,11 @@ export function SegmentEditor({
         // transient poll failure -- keep trying
       }
     }, 3000);
+  }
+
+  async function handleCut() {
+    if (!cutSourceAsset) return;
+    await startCutAndApply(cutSourceAsset.id, cutStartSeconds, cutDurationSeconds);
   }
 
   const hookPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -214,13 +230,20 @@ export function SegmentEditor({
     }, HOOK_POLL_INTERVAL_MS);
   }
 
-  function applyHookSuggestion(suggestion: HookSuggestion) {
-    onChange({
-      ...draft,
-      trim_start: suggestion.start_ms / 1000,
-      trim_end: suggestion.end_ms / 1000,
-      title_text: suggestion.title,
-    });
+  // Applying a suggestion cuts the suggested window into its own clip asset
+  // (the same mechanism as the manual "Potong & Gunakan" button) rather than
+  // just narrowing the trim window on the full source -- so the operator
+  // ends up with a real, ready-to-use clip immediately, no separate manual
+  // cut step needed.
+  async function applyHookSuggestion(suggestion: HookSuggestion) {
+    if (!draft.video_asset_id) return;
+    setAppliedHookReasoning(suggestion.reasoning);
+    await startCutAndApply(
+      draft.video_asset_id,
+      suggestion.start_ms / 1000,
+      (suggestion.end_ms - suggestion.start_ms) / 1000,
+      { title_text: suggestion.title }
+    );
   }
 
   useEffect(() => {
@@ -391,12 +414,19 @@ export function SegmentEditor({
           {hookSuggestions.length > 0 && (
             <div className="flex flex-col gap-2 rounded-xl border border-orange-100 bg-orange-50/50 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-orange-600">Suggested Hooks</p>
+              {cutting && <p className="text-xs font-medium text-purple-600">✂️ Memotong klip...</p>}
+              {cutError && (
+                <p role="alert" className="text-xs font-medium text-rose-500">
+                  {cutError}
+                </p>
+              )}
               {hookSuggestions.map((s) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => applyHookSuggestion(s)}
-                  className="rounded-lg border border-orange-200 bg-white p-3 text-left transition hover:border-orange-400 hover:bg-orange-50"
+                  disabled={cutting}
+                  className="rounded-lg border border-orange-200 bg-white p-3 text-left transition hover:border-orange-400 hover:bg-orange-50 disabled:opacity-50"
                 >
                   <p className="text-sm font-semibold text-slate-800">{s.title}</p>
                   <p className="text-xs text-slate-500">
@@ -432,13 +462,18 @@ export function SegmentEditor({
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <input
-          type="text"
-          placeholder="Title text (optional)"
-          value={draft.title_text ?? ""}
-          onChange={(e) => onChange({ ...draft, title_text: e.target.value })}
-          className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
-        />
+        <div className="flex flex-col gap-1">
+          <input
+            type="text"
+            placeholder="Title text (optional)"
+            value={draft.title_text ?? ""}
+            onChange={(e) => onChange({ ...draft, title_text: e.target.value })}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+          />
+          {appliedHookReasoning && (
+            <p className="px-1 text-xs text-slate-500">💡 Kenapa dipilih: {appliedHookReasoning}</p>
+          )}
+        </div>
 
         <select
           value={draft.caption_style ?? "default"}
