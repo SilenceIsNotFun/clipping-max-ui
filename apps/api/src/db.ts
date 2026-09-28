@@ -118,6 +118,18 @@ CREATE TABLE IF NOT EXISTS caption_words (
   start_ms INTEGER NOT NULL,
   end_ms INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cut_jobs (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  source_asset_id TEXT NOT NULL REFERENCES video_assets(id),
+  start_seconds REAL NOT NULL,
+  duration_seconds REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  result_asset_id TEXT REFERENCES video_assets(id),
+  error_message TEXT,
+  created_at TEXT NOT NULL
+);
 `;
 
 // NOTE: intentionally caches by first call only, ignoring subsequent dbPath args — fine since

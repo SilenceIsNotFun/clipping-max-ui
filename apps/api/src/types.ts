@@ -137,3 +137,15 @@ export interface CaptionWord {
   start_ms: number;
   end_ms: number;
 }
+
+export interface CutJob {
+  id: string;
+  campaign_id: string;
+  source_asset_id: string;
+  start_seconds: number;
+  duration_seconds: number;
+  status: "pending" | "done" | "failed";
+  result_asset_id: string | null;
+  error_message: string | null;
+  created_at: string;
+}

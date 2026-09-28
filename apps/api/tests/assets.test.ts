@@ -339,4 +339,26 @@ describe("asset routes", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/image/i);
   });
+
+  it("deletes an asset that is referenced by a cut_jobs row without a foreign key error", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+    const assetId = uploadRes.body.id;
+
+    const db = getDb(process.env.DB_PATH as string);
+    db.prepare(
+      `INSERT INTO cut_jobs (id, campaign_id, source_asset_id, start_seconds, duration_seconds, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("cutjob-1", campaignId, assetId, 0, 5, "pending", new Date().toISOString());
+
+    const res = await request(app).delete(`/api/campaigns/${campaignId}/assets/${assetId}`);
+    expect(res.status).toBe(204);
+
+    const remaining = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get("cutjob-1");
+    expect(remaining).toBeUndefined();
+  });
 });
