@@ -9,6 +9,15 @@ const ANALYSIS_STYLES: Record<string, string> = {
   failed: "bg-rose-100 text-rose-700",
 };
 
+const ASSET_TYPE_ICONS: Record<string, string> = {
+  footage: "🎬",
+  music: "🎵",
+  watermark: "💧",
+  clip: "✂️",
+  broll: "🎞️",
+};
+const DEFAULT_ASSET_TYPE_ICON = "📄";
+
 export function AssetList({
   campaignId,
   assets,
@@ -51,11 +60,11 @@ export function AssetList({
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-slate-700">{a.file_path.split("/").pop()}</p>
               <p className="text-xs text-slate-400">
-                {a.asset_type === "footage" ? "🎬" : "🎵"} {a.asset_type} · {a.duration_seconds.toFixed(1)}s
+                {ASSET_TYPE_ICONS[a.asset_type] ?? DEFAULT_ASSET_TYPE_ICON} {a.asset_type} · {a.duration_seconds.toFixed(1)}s
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {a.asset_type === "footage" && (
+              {a.asset_type !== "watermark" && (
                 <span className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${ANALYSIS_STYLES[a.analysis_status] ?? "bg-slate-100 text-slate-600"}`}>
                   {a.analysis_status}
                 </span>
