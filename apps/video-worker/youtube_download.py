@@ -10,7 +10,7 @@ manual, checkable deadline, so a hang can be SIGKILL'd deterministically.
 
 import os
 import subprocess
-import time
+import threading
 from typing import Callable, Optional
 
 DOWNLOAD_TIMEOUT_SECONDS = int(os.environ.get("YOUTUBE_DOWNLOAD_TIMEOUT_SECONDS", "1800"))
@@ -55,24 +55,40 @@ def download_youtube_video(
     # Everything NOT recognized as a progress line, kept for the error
     # message on a non-zero exit.
     other_lines: list[str] = []
-    deadline = time.monotonic() + timeout_seconds
-    for line in proc.stdout:
-        if time.monotonic() > deadline:
-            proc.kill()
-            proc.wait()
-            raise RuntimeError(f"download timed out after {timeout_seconds}s")
-        if line.startswith("PROGRESS "):
-            _, downloaded, total, speed = line.split()
-            if on_progress is not None:
-                on_progress(
-                    {
-                        "downloaded_bytes": _parse_progress_field(downloaded, int),
-                        "total_bytes": _parse_progress_field(total, int),
-                        "speed_bytes_per_sec": _parse_progress_field(speed, float),
-                    }
-                )
-        else:
-            other_lines.append(line)
-    proc.wait()
+
+    # A silent stall (dead socket, wedged extractor) never produces another
+    # line, so a deadline checked only inside the `for line in proc.stdout`
+    # loop below would never be reached. A threading.Timer fires
+    # out-of-band regardless of whether the loop is currently blocked
+    # reading stdout, and killing the subprocess closes its stdout, which
+    # unblocks the loop so execution can reach proc.wait() below.
+    timed_out = threading.Event()
+
+    def _kill_on_timeout():
+        timed_out.set()
+        proc.kill()
+
+    timer = threading.Timer(timeout_seconds, _kill_on_timeout)
+    timer.start()
+    try:
+        for line in proc.stdout:
+            if line.startswith("PROGRESS "):
+                _, downloaded, total, speed = line.split()
+                if on_progress is not None:
+                    on_progress(
+                        {
+                            "downloaded_bytes": _parse_progress_field(downloaded, int),
+                            "total_bytes": _parse_progress_field(total, int),
+                            "speed_bytes_per_sec": _parse_progress_field(speed, float),
+                        }
+                    )
+            else:
+                other_lines.append(line)
+        proc.wait()
+    finally:
+        timer.cancel()
+
+    if timed_out.is_set():
+        raise RuntimeError(f"download timed out after {timeout_seconds}s")
     if proc.returncode != 0:
         raise RuntimeError(f"yt-dlp exited {proc.returncode}: {''.join(other_lines)[-500:]}")

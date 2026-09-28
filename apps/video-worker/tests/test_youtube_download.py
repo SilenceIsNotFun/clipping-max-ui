@@ -55,17 +55,63 @@ def test_download_youtube_video_raises_on_nonzero_exit(monkeypatch):
         download_youtube_video("https://youtube.com/watch?v=x", "/tmp/out.mp4")
 
 
+class _StuckFakeProcess:
+    """Simulates a subprocess whose stdout never produces another line and
+    is never closed -- e.g. a dead socket or a wedged yt-dlp extractor. The
+    only way out is for something external (the threading.Timer-driven
+    kill) to call .kill(), which we model by making the stdout iterator
+    raise StopIteration once killed, mimicking the killed process's stdout
+    closing and unblocking `for line in proc.stdout`."""
+
+    def __init__(self):
+        self.returncode = 0
+        self.killed = False
+
+    @property
+    def stdout(self):
+        return self
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.killed:
+            raise StopIteration
+        # Would block forever on a real stuck subprocess; the fake timer
+        # below calls .kill() synchronously instead of actually waiting,
+        # so this branch is never reached in the test.
+        raise AssertionError("stdout iterator was consumed without a timeout firing")
+
+    def wait(self):
+        pass
+
+    def kill(self):
+        self.killed = True
+
+
 def test_download_youtube_video_raises_on_timeout(monkeypatch):
     from youtube_download import download_youtube_video
 
-    fake_proc = _FakeProcess(["PROGRESS 100 NA NA\n", "PROGRESS 200 NA NA\n"], returncode=0)
+    fake_proc = _StuckFakeProcess()
     monkeypatch.setattr("youtube_download.subprocess.Popen", lambda *a, **k: fake_proc)
 
-    # First time.monotonic() call establishes the deadline; every call after
-    # reports a huge jump past it, so the loop raises on its first
-    # iteration instead of processing further lines or actually sleeping.
-    monotonic_values = iter([0, 10**9, 10**9, 10**9])
-    monkeypatch.setattr("youtube_download.time.monotonic", lambda: next(monotonic_values, 1000))
+    # Replace threading.Timer with a fake that invokes its callback
+    # synchronously and immediately, instead of waiting `timeout_seconds`
+    # on a real background thread. This proves download_youtube_video wires
+    # up a real out-of-band timer (independent of stdout activity) without
+    # the test actually sleeping.
+    class _ImmediateTimer:
+        def __init__(self, interval, function):
+            self.interval = interval
+            self.function = function
+
+        def start(self):
+            self.function()
+
+        def cancel(self):
+            pass
+
+    monkeypatch.setattr("youtube_download.threading.Timer", _ImmediateTimer)
 
     with pytest.raises(RuntimeError, match="timed out"):
         download_youtube_video("https://youtube.com/watch?v=x", "/tmp/out.mp4", timeout_seconds=1800)
