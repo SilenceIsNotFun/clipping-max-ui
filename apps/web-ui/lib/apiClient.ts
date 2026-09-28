@@ -74,7 +74,7 @@ export interface VideoAsset {
   id: string;
   campaign_id: string;
   file_path: string;
-  asset_type: "footage" | "music" | "watermark";
+  asset_type: string;
   duration_seconds: number;
   analysis_status: "pending" | "done" | "failed";
   hook_status: "none" | "pending" | "done" | "failed";
@@ -207,6 +207,52 @@ export async function getHookSuggestions(campaignId: string, assetId: string): P
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`get hook suggestions failed with status ${res.status}`);
+  return res.json();
+}
+
+export interface CutJob {
+  id: string;
+  campaign_id: string;
+  source_asset_id: string;
+  start_seconds: number;
+  duration_seconds: number;
+  status: "pending" | "done" | "failed";
+  result_asset_id: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export async function triggerCut(
+  campaignId: string,
+  assetId: string,
+  startSeconds: number,
+  durationSeconds: number
+): Promise<{ cut_job_id: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/${assetId}/cut`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start_seconds: startSeconds, duration_seconds: durationSeconds }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `cut failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getCutJob(campaignId: string, jobId: string): Promise<CutJob> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/cut-jobs/${jobId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`get cut job failed with status ${res.status}`);
+  return res.json();
+}
+
+export async function getAssetCategories(campaignId: string): Promise<string[]> {
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/assets/categories`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`get asset categories failed with status ${res.status}`);
   return res.json();
 }
 
