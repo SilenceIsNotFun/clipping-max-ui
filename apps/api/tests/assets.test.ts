@@ -8,6 +8,7 @@ import { getDb, resetDbCacheForTests } from "../src/db";
 jest.mock("../src/services/videoWorkerClient", () => ({
   analyzeAsset: jest.fn().mockResolvedValue(undefined),
   findHooks: jest.fn().mockResolvedValue(undefined),
+  triggerCut: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe("asset routes", () => {
@@ -360,5 +361,49 @@ describe("asset routes", () => {
 
     const remaining = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get("cutjob-1");
     expect(remaining).toBeUndefined();
+  });
+
+  it("triggers a cut and returns 202 with a cut_job_id", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets/${uploadRes.body.id}/cut`)
+      .send({ start_seconds: 1, duration_seconds: 2 });
+    expect(res.status).toBe(202);
+    expect(res.body.cut_job_id).toBeDefined();
+
+    const db = getDb(process.env.DB_PATH as string);
+    const job = db.prepare("SELECT * FROM cut_jobs WHERE id = ?").get(res.body.cut_job_id) as any;
+    expect(job.source_asset_id).toBe(uploadRes.body.id);
+    expect(job.start_seconds).toBe(1);
+    expect(job.duration_seconds).toBe(2);
+    expect(job.status).toBe("pending");
+  });
+
+  it("returns 404 for cut on an unknown asset", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets/does-not-exist/cut`)
+      .send({ start_seconds: 0, duration_seconds: 2 });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for cut with a non-positive duration", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const uploadRes = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "footage")
+      .attach("file", fixture);
+
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets/${uploadRes.body.id}/cut`)
+      .send({ start_seconds: 0, duration_seconds: 0 });
+    expect(res.status).toBe(400);
   });
 });

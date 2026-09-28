@@ -6,7 +6,7 @@ import express, { Router } from "express";
 import multer from "multer";
 import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
-import { analyzeAsset, findHooks } from "../services/videoWorkerClient";
+import { analyzeAsset, findHooks, triggerCut } from "../services/videoWorkerClient";
 
 function probeDurationSeconds(filePath: string): number {
   try {
@@ -165,6 +165,58 @@ export function createAssetsRouter(): Router {
       .all(req.params.assetId);
     res.json(suggestions);
   });
+
+  router.post("/:assetId/cut", asyncHandler(async (req, res) => {
+    const db = getDb(dbPath);
+    const campaignId = (req.params as { id: string }).id;
+    const { assetId } = req.params;
+    const startSeconds = Number(req.body.start_seconds);
+    const durationSeconds = Number(req.body.duration_seconds);
+
+    const asset = db.prepare("SELECT * FROM video_assets WHERE id = ? AND campaign_id = ?").get(assetId, campaignId) as
+      | { id: string; file_path: string }
+      | undefined;
+    if (!asset) {
+      res.status(404).json({ error: "asset not found" });
+      return;
+    }
+    if (!Number.isFinite(startSeconds) || startSeconds < 0) {
+      res.status(400).json({ error: "start_seconds must be a non-negative number" });
+      return;
+    }
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      res.status(400).json({ error: "duration_seconds must be a positive number" });
+      return;
+    }
+
+    const jobId = randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO cut_jobs (id, campaign_id, source_asset_id, start_seconds, duration_seconds, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(jobId, campaignId, assetId, startSeconds, durationSeconds, "pending", now);
+
+    try {
+      await triggerCut(
+        videoWorkerUrl,
+        jobId,
+        asset.file_path,
+        startSeconds,
+        durationSeconds,
+        `${callbackBase}/cut-jobs/${jobId}/complete`
+      );
+    } catch (err) {
+      db.prepare("UPDATE cut_jobs SET status = ?, error_message = ? WHERE id = ?").run(
+        "failed",
+        (err as Error).message,
+        jobId
+      );
+      res.status(202).json({ cut_job_id: jobId });
+      return;
+    }
+
+    res.status(202).json({ cut_job_id: jobId });
+  }));
 
   router.delete("/:assetId", (req, res) => {
     const db = getDb(dbPath);

@@ -124,4 +124,38 @@ describe("videoWorkerClient", () => {
       findHooks("http://video-worker:8100", "asset-1", "/path.mp4", "h", "s", [], "http://cb")
     ).rejects.toThrow("video-worker /find-hooks failed with status 500");
   });
+
+  it("triggerCut posts the expected body to video-worker's /cut", async () => {
+    const { triggerCut } = require("../src/services/videoWorkerClient");
+    global.fetch = jest.fn().mockResolvedValueOnce({ ok: true }) as any;
+
+    await triggerCut(
+      "http://video-worker:8100",
+      "job-1",
+      "/app/video-assets/source.mp4",
+      10,
+      5,
+      "http://api:4000/api/internal/cut-jobs/job-1/complete"
+    );
+
+    const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("http://video-worker:8100/cut");
+    const body = JSON.parse(options.body);
+    expect(body).toEqual({
+      cut_job_id: "job-1",
+      file_path: "/app/video-assets/source.mp4",
+      start_seconds: 10,
+      duration_seconds: 5,
+      callback_url: "http://api:4000/api/internal/cut-jobs/job-1/complete",
+    });
+  });
+
+  it("triggerCut throws when video-worker responds with a non-ok status", async () => {
+    const { triggerCut } = require("../src/services/videoWorkerClient");
+    global.fetch = jest.fn().mockResolvedValueOnce({ ok: false, status: 500 }) as any;
+
+    await expect(
+      triggerCut("http://video-worker:8100", "job-1", "/app/video-assets/source.mp4", 10, 5, "http://cb")
+    ).rejects.toThrow("video-worker /cut failed with status 500");
+  });
 });

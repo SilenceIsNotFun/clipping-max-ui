@@ -76,3 +76,25 @@ export async function findHooks(
   });
   if (!res.ok) throw new Error(`video-worker /find-hooks failed with status ${res.status}`);
 }
+
+export async function triggerCut(
+  videoWorkerUrl: string,
+  cutJobId: string,
+  filePath: string,
+  startSeconds: number,
+  durationSeconds: number,
+  callbackUrl: string
+): Promise<void> {
+  const res = await fetch(`${videoWorkerUrl}/cut`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cut_job_id: cutJobId,
+      file_path: filePath,
+      start_seconds: startSeconds,
+      duration_seconds: durationSeconds,
+      callback_url: callbackUrl,
+    }),
+  });
+  if (!res.ok) throw new Error(`video-worker /cut failed with status ${res.status}`);
+}
