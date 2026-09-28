@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 import tempfile
@@ -168,6 +169,23 @@ def cut_route(payload: dict, background_tasks: BackgroundTasks) -> dict:
 YOUTUBE_PROGRESS_THROTTLE_SECONDS = 2.0
 
 
+def _cleanup_partial_download(output_path: str) -> None:
+    """Best-effort removal of a failed/timed-out download's output file and
+    any sibling fragment/part files yt-dlp may have created alongside it
+    (e.g. "<output_path>.part", "<output_path>.f137.part"), so bad URLs,
+    private videos, and timeouts don't leak unbounded orphan files into the
+    shared video-assets volume forever. Never raises -- the file may not
+    exist at all if the process failed before writing anything."""
+    try:
+        for path in glob.glob(f"{output_path}*"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def _run_youtube_download(job_id: str, url: str, output_path: str, callback_url: str) -> None:
     last_post_time = {"value": 0.0}
 
@@ -188,6 +206,7 @@ def _run_youtube_download(job_id: str, url: str, output_path: str, callback_url:
         )
     except Exception as exc:  # noqa: BLE001 - report any failure to the caller
         logger.exception("youtube download failed for job_id=%s", job_id)
+        _cleanup_partial_download(output_path)
         _post_callback(callback_url, {"job_id": job_id, "status": "failed", "error": str(exc)})
 
 
