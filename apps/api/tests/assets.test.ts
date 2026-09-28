@@ -431,4 +431,66 @@ describe("asset routes", () => {
     const res = await request(app).get(`/api/campaigns/${campaignId}/assets/cut-jobs/does-not-exist`);
     expect(res.status).toBe(404);
   });
+
+  it("returns the 5 default asset categories when none have been used yet", async () => {
+    const app = createApp();
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/categories`);
+    expect(res.status).toBe(200);
+    expect(res.body.sort()).toEqual(["broll", "clip", "footage", "music", "watermark"]);
+  });
+
+  it("includes a custom category once an asset of that type has been uploaded", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "interview")
+      .attach("file", fixture);
+
+    const res = await request(app).get(`/api/campaigns/${campaignId}/assets/categories`);
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("interview");
+  });
+
+  it("uploads an asset with a custom category, treated like footage (duration probed)", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "interview")
+      .attach("file", fixture);
+
+    expect(res.status).toBe(201);
+    expect(res.body.asset_type).toBe("interview");
+    expect(res.body.duration_seconds).toBeGreaterThan(0);
+    expect(res.body.analysis_status).toBe("pending");
+  });
+
+  it("still applies watermark's special validation for a literal watermark upload", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "watermark")
+      .attach("file", fixture);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/image/i);
+  });
+
+  it("treats a differently-cased category as a distinct custom category, not a watermark bypass", async () => {
+    const app = createApp();
+    const fixture = path.join(__dirname, "fixtures", "short_clip.mp4");
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets`)
+      .field("asset_type", "Watermark")
+      .attach("file", fixture);
+
+    // "Watermark" (capitalized) does not match the literal "watermark" special-case string,
+    // so it's treated as a generic category and duration-probed like any other -- this is the
+    // intended free-text/case-sensitive category behavior, not an accidental validation bypass.
+    expect(res.status).toBe(201);
+    expect(res.body.asset_type).toBe("Watermark");
+    expect(res.body.duration_seconds).toBeGreaterThan(0);
+  });
 });

@@ -44,8 +44,8 @@ export function createAssetsRouter(): Router {
       res.status(400).json({ error: "file is required" });
       return;
     }
-    const assetType: "footage" | "music" | "watermark" =
-      req.body.asset_type === "music" ? "music" : req.body.asset_type === "watermark" ? "watermark" : "footage";
+    const rawAssetType = typeof req.body.asset_type === "string" ? req.body.asset_type.trim() : "";
+    const assetType = rawAssetType || "footage";
 
     let duration = 0;
     if (assetType === "watermark") {
@@ -71,9 +71,9 @@ export function createAssetsRouter(): Router {
     db.prepare(
       `INSERT INTO video_assets (id, campaign_id, file_path, asset_type, duration_seconds, analysis_status, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, campaignId, finalPath, assetType, duration, assetType === "footage" ? "pending" : "done", now);
+    ).run(id, campaignId, finalPath, assetType, duration, assetType !== "watermark" ? "pending" : "done", now);
 
-    if (assetType === "footage") {
+    if (assetType !== "watermark") {
       try {
         await analyzeAsset(videoWorkerUrl, id, finalPath, `${callbackBase}/assets/${id}/analysis-complete`);
       } catch (err) {
@@ -164,6 +164,19 @@ export function createAssetsRouter(): Router {
       .prepare("SELECT * FROM hook_suggestions WHERE video_asset_id = ? ORDER BY created_at ASC")
       .all(req.params.assetId);
     res.json(suggestions);
+  });
+
+  router.get("/categories", (req, res) => {
+    const db = getDb(dbPath);
+    const campaignId = (req.params as { id: string }).id;
+    const defaults = ["footage", "clip", "broll", "music", "watermark"];
+    const used = (
+      db.prepare("SELECT DISTINCT asset_type FROM video_assets WHERE campaign_id = ?").all(campaignId) as {
+        asset_type: string;
+      }[]
+    ).map((r) => r.asset_type);
+    const categories = Array.from(new Set([...defaults, ...used]));
+    res.json(categories);
   });
 
   router.post("/:assetId/cut", asyncHandler(async (req, res) => {
