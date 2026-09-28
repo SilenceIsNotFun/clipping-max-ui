@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CropRect,
   CropSuggestion,
+  CutJob,
   HookSuggestion,
   LayoutTemplate,
   MomentCandidate,
@@ -11,8 +12,10 @@ import {
   VideoAsset,
   findHooks,
   getCropSuggestion,
+  getCutJob,
   getHookSuggestions,
   listMoments,
+  triggerCut,
 } from "../lib/apiClient";
 import { TimelineScrubber } from "./TimelineScrubber";
 import { CropCanvas } from "./CropCanvas";
@@ -34,13 +37,11 @@ const CAPTION_STYLES = ["default", "energetic", "warning"];
 
 export function SegmentEditor({
   campaignId,
-  segmentKey,
   assets,
   draft,
   onChange,
 }: {
   campaignId: string;
-  segmentKey: string;
   assets: VideoAsset[];
   draft: SegmentDraft;
   onChange: (draft: SegmentDraft) => void;
@@ -51,6 +52,63 @@ export function SegmentEditor({
   const [findingHooks, setFindingHooks] = useState(false);
   const [hookError, setHookError] = useState<string | null>(null);
   const asset = assets.find((a) => a.id === draft.video_asset_id);
+
+  const [cutStartSeconds, setCutStartSeconds] = useState(0);
+  const [cutDurationSeconds, setCutDurationSeconds] = useState(0);
+  const [cutting, setCutting] = useState(false);
+  const [cutError, setCutError] = useState<string | null>(null);
+  const cutPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopCutPolling() {
+    if (cutPollIntervalRef.current !== null) {
+      clearInterval(cutPollIntervalRef.current);
+      cutPollIntervalRef.current = null;
+    }
+  }
+
+  useEffect(() => {
+    return () => stopCutPolling();
+  }, [campaignId, draft.video_asset_id]);
+
+  const isBroll = draft.segment_key.trim().toLowerCase() === "broll";
+  const sourceCandidates = assets.filter((a) =>
+    isBroll ? a.asset_type === "broll" : a.asset_type === "footage" || a.asset_type === "clip"
+  );
+  const [cutSourceAssetId, setCutSourceAssetId] = useState("");
+  const cutSourceAsset = assets.find((a) => a.id === cutSourceAssetId);
+
+  async function handleCut() {
+    if (!cutSourceAsset || cutDurationSeconds <= 0) return;
+    setCutting(true);
+    setCutError(null);
+    let jobId: string;
+    try {
+      const result = await triggerCut(campaignId, cutSourceAsset.id, cutStartSeconds, cutDurationSeconds);
+      jobId = result.cut_job_id;
+    } catch (err) {
+      setCutError((err as Error).message);
+      setCutting(false);
+      return;
+    }
+
+    stopCutPolling();
+    cutPollIntervalRef.current = setInterval(async () => {
+      try {
+        const job: CutJob = await getCutJob(campaignId, jobId);
+        if (job.status === "done" && job.result_asset_id) {
+          stopCutPolling();
+          setCutting(false);
+          onChange({ ...draft, video_asset_id: job.result_asset_id, trim_start: 0, trim_end: cutDurationSeconds });
+        } else if (job.status === "failed") {
+          stopCutPolling();
+          setCutting(false);
+          setCutError(job.error_message ?? "cut failed");
+        }
+      } catch {
+        // transient poll failure -- keep trying
+      }
+    }, 3000);
+  }
 
   const hookPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hookPollAttemptsRef = useRef(0);
@@ -166,25 +224,24 @@ export function SegmentEditor({
   return (
     <fieldset className="flex flex-col gap-4 rounded-2xl border border-purple-100 bg-white p-5 shadow-sm">
       <legend className="rounded-full bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-1 text-sm font-semibold text-white">
-        {segmentKey}
+        Segment
       </legend>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <select
-          value={draft.video_asset_id}
-          onChange={(e) => onChange({ ...draft, video_asset_id: e.target.value })}
-          className={selectClass}
-        >
-          <option value="">Select footage</option>
-          {assets
-            .filter((a) => a.asset_type === "footage")
-            .map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.file_path.split("/").pop()}
-              </option>
-            ))}
-        </select>
+      <input
+        list={`segment-labels-${campaignId}`}
+        type="text"
+        placeholder="Label (e.g. hook, body, broll)"
+        value={draft.segment_key}
+        onChange={(e) => onChange({ ...draft, segment_key: e.target.value })}
+        className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+      />
+      <datalist id={`segment-labels-${campaignId}`}>
+        <option value="hook" />
+        <option value="body" />
+        <option value="broll" />
+      </datalist>
 
+      <div className="grid gap-3 sm:grid-cols-2">
         <select
           value={draft.layout_template}
           onChange={(e) => onChange({ ...draft, layout_template: e.target.value as LayoutTemplate })}
@@ -196,6 +253,78 @@ export function SegmentEditor({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-600">
+          Cut a piece from a source asset
+        </p>
+        <select
+          value={cutSourceAssetId}
+          onChange={(e) => setCutSourceAssetId(e.target.value)}
+          className={selectClass}
+        >
+          <option value="">Select source</option>
+          {sourceCandidates.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.file_path.split("/").pop()}
+            </option>
+          ))}
+        </select>
+        {sourceCandidates.length === 0 && (
+          <p className="mt-2 text-xs text-rose-500">
+            No {isBroll ? "broll" : "footage/clip"} assets yet — upload one first.
+          </p>
+        )}
+        {cutSourceAsset && (
+          <button
+            type="button"
+            onClick={() =>
+              onChange({ ...draft, video_asset_id: cutSourceAsset.id, trim_start: 0, trim_end: cutSourceAsset.duration_seconds })
+            }
+            className="mt-2 text-xs font-medium text-purple-600 underline"
+          >
+            Atau pakai asset ini apa adanya (tanpa potong)
+          </button>
+        )}
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            placeholder="Start (detik)"
+            value={cutStartSeconds}
+            onChange={(e) => setCutStartSeconds(Number(e.target.value))}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+          />
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            placeholder="Durasi (detik)"
+            value={cutDurationSeconds}
+            onChange={(e) => setCutDurationSeconds(Number(e.target.value))}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleCut}
+          disabled={cutting || !cutSourceAssetId || cutDurationSeconds <= 0}
+          className="mt-2 w-fit rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-purple-100 transition hover:opacity-90 disabled:opacity-50"
+        >
+          {cutting ? "Memotong..." : "Potong & Gunakan"}
+        </button>
+        {cutError && (
+          <p role="alert" className="mt-2 text-sm font-medium text-rose-500">
+            {cutError}
+          </p>
+        )}
+        {draft.video_asset_id && (
+          <p className="mt-2 text-xs text-emerald-600">
+            Segmen ini pakai: {assets.find((a) => a.id === draft.video_asset_id)?.file_path.split("/").pop()}
+          </p>
+        )}
       </div>
 
       {asset && (
