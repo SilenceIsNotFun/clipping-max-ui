@@ -290,6 +290,81 @@ def test_find_hooks_returns_202_and_calls_callback_with_suggestions():
     assert body["hook_suggestions"][0]["title"] == "T"
 
 
+def test_cut_returns_202_and_calls_callback_with_output(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    mock_build_trim_args = MagicMock(return_value=["ffmpeg", "-y", "fake-args"])
+    mock_run_ffmpeg = MagicMock()
+    mock_probe_duration = MagicMock(return_value=4.8)
+    monkeypatch.setattr("main.build_trim_args", mock_build_trim_args)
+    monkeypatch.setattr("main.run_ffmpeg", mock_run_ffmpeg)
+    monkeypatch.setattr("main.probe_duration", mock_probe_duration)
+    monkeypatch.setenv("VIDEO_ASSETS_DIR", str(tmp_path))
+
+    with patch("main.requests.post") as mock_post:
+        res = client.post(
+            "/cut",
+            json={
+                "cut_job_id": "job-1",
+                "file_path": "/app/video-assets/source.mp4",
+                "start_seconds": 10,
+                "duration_seconds": 5,
+                "callback_url": "http://api:4000/api/internal/cut-jobs/job-1/complete",
+            },
+        )
+        assert res.status_code == 202
+
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    mock_build_trim_args.assert_called_once()
+    call_args = mock_build_trim_args.call_args[0]
+    assert call_args[0] == "/app/video-assets/source.mp4"
+    assert call_args[1] == 10
+    assert call_args[2] == 15  # start + duration
+
+    _, kwargs = mock_post.call_args
+    body = kwargs["json"]
+    assert body["cut_job_id"] == "job-1"
+    assert body["status"] == "done"
+    assert body["duration_seconds"] == 4.8
+    assert "output_path" in body
+
+
+def test_cut_reports_error_on_ffmpeg_failure(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("main.build_trim_args", MagicMock(return_value=["ffmpeg"]))
+    monkeypatch.setattr("main.run_ffmpeg", MagicMock(side_effect=RuntimeError("ffmpeg exited 1")))
+    monkeypatch.setenv("VIDEO_ASSETS_DIR", str(tmp_path))
+
+    with patch("main.requests.post") as mock_post:
+        res = client.post(
+            "/cut",
+            json={
+                "cut_job_id": "job-2",
+                "file_path": "/app/video-assets/source.mp4",
+                "start_seconds": 0,
+                "duration_seconds": 5,
+                "callback_url": "http://api:4000/api/internal/cut-jobs/job-2/complete",
+            },
+        )
+        assert res.status_code == 202
+
+        for _ in range(20):
+            if mock_post.called:
+                break
+            time.sleep(0.05)
+
+    _, kwargs = mock_post.call_args
+    body = kwargs["json"]
+    assert body["cut_job_id"] == "job-2"
+    assert body["status"] == "failed"
+    assert "error" in body
+
+
 def test_find_hooks_reports_error_on_gemini_failure():
     with patch("main.find_hooks", side_effect=RuntimeError("no GEMINI_API_KEY set")), patch(
         "main.requests.post"

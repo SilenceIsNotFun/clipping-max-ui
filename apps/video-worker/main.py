@@ -6,6 +6,7 @@ import requests
 from fastapi import BackgroundTasks, FastAPI
 
 from face_crop import detect_crop_suggestion
+from ffmpeg_utils import build_trim_args, probe_duration, run_ffmpeg
 from hook_finder import find_hooks
 from moment_detection import detect_audio_peaks, detect_scene_changes
 from render import render_video
@@ -127,6 +128,36 @@ def find_hooks_route(payload: dict, background_tasks: BackgroundTasks) -> dict:
         payload["hook"],
         payload["strategy_summary"],
         payload["requirements_checklist"],
+        payload["callback_url"],
+    )
+    return {"status": "accepted"}
+
+
+def _run_cut(cut_job_id: str, file_path: str, start_seconds: float, duration_seconds: float, callback_url: str) -> None:
+    output_dir = os.environ.get("VIDEO_ASSETS_DIR", "/app/video-assets")
+    output_path = os.path.join(output_dir, "clips", f"{cut_job_id}.mp4")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    try:
+        args = build_trim_args(file_path, start_seconds, start_seconds + duration_seconds, output_path)
+        run_ffmpeg(args)
+        actual_duration = probe_duration(output_path)
+        _post_callback(
+            callback_url,
+            {"cut_job_id": cut_job_id, "status": "done", "output_path": output_path, "duration_seconds": actual_duration},
+        )
+    except Exception as exc:  # noqa: BLE001 - report any failure to the caller
+        logger.exception("cut failed for cut_job_id=%s", cut_job_id)
+        _post_callback(callback_url, {"cut_job_id": cut_job_id, "status": "failed", "error": str(exc)})
+
+
+@app.post("/cut", status_code=202)
+def cut_route(payload: dict, background_tasks: BackgroundTasks) -> dict:
+    background_tasks.add_task(
+        _run_cut,
+        payload["cut_job_id"],
+        payload["file_path"],
+        payload["start_seconds"],
+        payload["duration_seconds"],
         payload["callback_url"],
     )
     return {"status": "accepted"}
