@@ -98,3 +98,17 @@ export async function triggerCut(
   });
   if (!res.ok) throw new Error(`video-worker /cut failed with status ${res.status}`);
 }
+
+export async function triggerYoutubeDownload(
+  videoWorkerUrl: string,
+  jobId: string,
+  url: string,
+  callbackUrl: string
+): Promise<void> {
+  const res = await fetch(`${videoWorkerUrl}/download-youtube`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId, url, callback_url: callbackUrl }),
+  });
+  if (!res.ok) throw new Error(`video-worker /download-youtube failed with status ${res.status}`);
+}

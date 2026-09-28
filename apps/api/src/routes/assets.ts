@@ -6,7 +6,7 @@ import express, { Router } from "express";
 import multer from "multer";
 import { asyncHandler } from "../asyncHandler";
 import { getDb } from "../db";
-import { analyzeAsset, findHooks, triggerCut } from "../services/videoWorkerClient";
+import { analyzeAsset, findHooks, triggerCut, triggerYoutubeDownload } from "../services/videoWorkerClient";
 
 function probeDurationSeconds(filePath: string): number {
   try {
@@ -178,6 +178,45 @@ export function createAssetsRouter(): Router {
     const categories = Array.from(new Set([...defaults, ...used]));
     res.json(categories);
   });
+
+  router.post("/youtube", asyncHandler(async (req, res) => {
+    const db = getDb(dbPath);
+    const campaignId = (req.params as { id: string }).id;
+    const url = typeof req.body.url === "string" ? req.body.url.trim() : "";
+    if (!url) {
+      res.status(400).json({ error: "url is required" });
+      return;
+    }
+    try {
+      // eslint-disable-next-line no-new
+      new URL(url);
+    } catch {
+      res.status(400).json({ error: "url is not a valid URL" });
+      return;
+    }
+
+    const jobId = randomUUID();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO youtube_download_jobs (id, campaign_id, url, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(jobId, campaignId, url, "pending", now, now);
+
+    try {
+      await triggerYoutubeDownload(videoWorkerUrl, jobId, url, `${callbackBase}/youtube-jobs/${jobId}/progress`);
+    } catch (err) {
+      db.prepare("UPDATE youtube_download_jobs SET status = ?, error_message = ?, updated_at = ? WHERE id = ?").run(
+        "failed",
+        (err as Error).message,
+        new Date().toISOString(),
+        jobId
+      );
+      res.status(202).json({ job_id: jobId });
+      return;
+    }
+
+    res.status(202).json({ job_id: jobId });
+  }));
 
   router.post("/:assetId/cut", asyncHandler(async (req, res) => {
     const db = getDb(dbPath);

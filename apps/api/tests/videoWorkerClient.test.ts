@@ -158,4 +158,34 @@ describe("videoWorkerClient", () => {
       triggerCut("http://video-worker:8100", "job-1", "/app/video-assets/source.mp4", 10, 5, "http://cb")
     ).rejects.toThrow("video-worker /cut failed with status 500");
   });
+
+  it("triggerYoutubeDownload posts the expected body to video-worker's /download-youtube", async () => {
+    const { triggerYoutubeDownload } = require("../src/services/videoWorkerClient");
+    global.fetch = jest.fn().mockResolvedValueOnce({ ok: true }) as any;
+
+    await triggerYoutubeDownload(
+      "http://video-worker:8100",
+      "job-1",
+      "https://youtube.com/watch?v=x",
+      "http://api:4000/api/internal/youtube-jobs/job-1/progress"
+    );
+
+    const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe("http://video-worker:8100/download-youtube");
+    const body = JSON.parse(options.body);
+    expect(body).toEqual({
+      job_id: "job-1",
+      url: "https://youtube.com/watch?v=x",
+      callback_url: "http://api:4000/api/internal/youtube-jobs/job-1/progress",
+    });
+  });
+
+  it("triggerYoutubeDownload throws when video-worker responds with a non-ok status", async () => {
+    const { triggerYoutubeDownload } = require("../src/services/videoWorkerClient");
+    global.fetch = jest.fn().mockResolvedValueOnce({ ok: false, status: 500 }) as any;
+
+    await expect(
+      triggerYoutubeDownload("http://video-worker:8100", "job-1", "https://youtube.com/watch?v=x", "http://cb")
+    ).rejects.toThrow("video-worker /download-youtube failed with status 500");
+  });
 });

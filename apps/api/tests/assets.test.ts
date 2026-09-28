@@ -9,6 +9,7 @@ jest.mock("../src/services/videoWorkerClient", () => ({
   analyzeAsset: jest.fn().mockResolvedValue(undefined),
   findHooks: jest.fn().mockResolvedValue(undefined),
   triggerCut: jest.fn().mockResolvedValue(undefined),
+  triggerYoutubeDownload: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe("asset routes", () => {
@@ -515,5 +516,31 @@ describe("asset routes", () => {
     expect(res.status).toBe(201);
     expect(res.body.asset_type).toBe("Watermark");
     expect(res.body.duration_seconds).toBeGreaterThan(0);
+  });
+
+  it("triggers a youtube download and returns 202 with a job_id", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post(`/api/campaigns/${campaignId}/assets/youtube`)
+      .send({ url: "https://youtube.com/watch?v=x" });
+    expect(res.status).toBe(202);
+    expect(res.body.job_id).toBeDefined();
+
+    const db = getDb(process.env.DB_PATH as string);
+    const job = db.prepare("SELECT * FROM youtube_download_jobs WHERE id = ?").get(res.body.job_id) as any;
+    expect(job.url).toBe("https://youtube.com/watch?v=x");
+    expect(job.status).toBe("pending");
+  });
+
+  it("returns 400 for an empty url", async () => {
+    const app = createApp();
+    const res = await request(app).post(`/api/campaigns/${campaignId}/assets/youtube`).send({ url: "" });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for a malformed url", async () => {
+    const app = createApp();
+    const res = await request(app).post(`/api/campaigns/${campaignId}/assets/youtube`).send({ url: "not a url" });
+    expect(res.status).toBe(400);
   });
 });
