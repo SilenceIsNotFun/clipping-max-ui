@@ -48,7 +48,7 @@ export interface VideoAsset {
   id: string;
   campaign_id: string;
   file_path: string;
-  asset_type: "footage" | "music" | "watermark";
+  asset_type: string;
   duration_seconds: number;
   analysis_status: "pending" | "done" | "failed";
   hook_status: "none" | "pending" | "done" | "failed";
