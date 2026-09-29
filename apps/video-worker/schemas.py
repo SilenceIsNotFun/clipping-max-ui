@@ -60,6 +60,10 @@ class RenderSegmentInput(BaseModel):
     title_text: Optional[str] = None
     title_rect: Optional[CropRect] = None
     caption_style: Optional[str] = None
+    title_font: Optional[str] = None
+    title_color: Optional[str] = None
+    caption_font: Optional[str] = None
+    caption_rect: Optional[CropRect] = None
 
 
 class RenderJobInput(BaseModel):

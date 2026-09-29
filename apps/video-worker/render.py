@@ -1,8 +1,10 @@
 import os
 
 from alignment import align_words
-from color_resolution import resolve_caption_style
+from caption_position import rect_to_ass_position
+from color_resolution import resolve_caption_style, resolve_title_color
 from ffmpeg_utils import probe_duration, run_ffmpeg
+from font_resolution import FONT_CACHE_DIR, resolve_caption_font, resolve_title_font
 from layout import build_segment_filter
 from schemas import CaptionWord, CropRect, RenderJobInput, RenderResult, SegmentInput
 from title_render import render_title_png
@@ -27,7 +29,13 @@ def _format_ass_timestamp(ms: int) -> str:
 WORDS_PER_LINE = 4
 
 
-def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str) -> None:
+def _write_ass(
+    caption_words: list[CaptionWord],
+    style_name: str,
+    ass_path: str,
+    font_value: str | None = None,
+    position: CropRect | None = None,
+) -> None:
     """Writes an ASS (Advanced SubStation Alpha) subtitle file with karaoke-style
     per-word highlighting: consecutive words are grouped into short lines (fixed
     chunks of WORDS_PER_LINE words), and for each word's own [start, end] window
@@ -35,6 +43,8 @@ def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str)
     the highlight color override tag and the rest of the line left at the
     style's default PrimaryColour (no override tag needed there)."""
     style = resolve_caption_style(style_name)
+    font_family = resolve_caption_font(font_value)
+    pos = rect_to_ass_position(position)
 
     header = (
         "[Script Info]\n"
@@ -45,7 +55,8 @@ def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str)
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, Bold, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,DejaVu Sans,72,{style['primary']},{style['outline']},1,1,3,0,2,40,40,120,1\n\n"
+        f"Style: Default,{font_family},72,{style['primary']},{style['outline']},1,1,3,0,"
+        f"{pos['alignment']},{pos['margin_l']},{pos['margin_r']},{pos['margin_v']},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -78,7 +89,13 @@ def _render_single_segment(
     title_overlay_path = None
     if segment.title_text:
         title_overlay_path = os.path.join(work_dir, f"segment_{index}_title.png")
-        render_title_png(segment.title_text, title_overlay_path, segment.title_rect)
+        render_title_png(
+            segment.title_text,
+            title_overlay_path,
+            segment.title_rect,
+            font_path=resolve_title_font(segment.title_font),
+            color=resolve_title_color(segment.title_color),
+        )
 
     segment_filter_input = SegmentInput(
         layout_template=segment.layout_template,
@@ -181,9 +198,12 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
     caption_style = (
         ordered_segments[0].caption_style if ordered_segments and ordered_segments[0].caption_style else "default"
     )
+    caption_font = ordered_segments[0].caption_font if ordered_segments else None
+    caption_rect = ordered_segments[0].caption_rect if ordered_segments else None
     ass_path = os.path.join(work_dir, "captions.ass")
-    _write_ass(all_caption_words, caption_style, ass_path)
+    _write_ass(all_caption_words, caption_style, ass_path, font_value=caption_font, position=caption_rect)
     escaped_ass_path = ass_path.replace("\\", "\\\\").replace("'", "'\\''")
+    escaped_fontsdir = FONT_CACHE_DIR.replace("\\", "\\\\").replace("'", "'\\''")
 
     final_output = job.output_path
     if job.music_path:
@@ -200,7 +220,7 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
             job.music_path,
         ]
         input_count = 3  # concat_video, concat_voiceover, music_path -- do NOT derive this from len(args); -stream_loop/-1 are extra non-input elements that throw off any arithmetic on the list length
-        video_filter = f"[0:v]subtitles='{escaped_ass_path}'[v]"
+        video_filter = f"[0:v]subtitles='{escaped_ass_path}':fontsdir='{escaped_fontsdir}'[v]"
         video_out_label = "v"
         if job.watermark_path and job.watermark_rect:
             args += ["-i", job.watermark_path]
@@ -221,7 +241,7 @@ def render_video(job: RenderJobInput, work_dir: str) -> RenderResult:
     else:
         args = ["ffmpeg", "-y", "-i", concat_video, "-i", concat_voiceover]
         input_count = 2  # concat_video, concat_voiceover
-        video_filter = f"[0:v]subtitles='{escaped_ass_path}'[v]"
+        video_filter = f"[0:v]subtitles='{escaped_ass_path}':fontsdir='{escaped_fontsdir}'[v]"
         video_out_label = "v"
         if job.watermark_path and job.watermark_rect:
             args += ["-i", job.watermark_path]

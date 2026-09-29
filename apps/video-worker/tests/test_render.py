@@ -377,3 +377,37 @@ def test_write_ass_still_uses_named_presets_via_resolve_caption_style():
         content = f.read()
     assert "&H000080FF" in content  # energetic preset's highlight color
     os.remove(ass_path)
+
+
+def test_write_ass_accepts_font_and_position_overrides():
+    from render import _write_ass
+    from schemas import CaptionWord, CropRect
+
+    words = [CaptionWord(word="hi", start_ms=0, end_ms=500)]
+    ass_path = "/tmp/test_write_ass_overrides.ass"
+    _write_ass(
+        words,
+        "default",
+        ass_path,
+        font_value="anton",
+        position=CropRect(x=0.0, y=0.0, width=0.3, height=0.1),
+    )
+    with open(ass_path) as f:
+        content = f.read()
+    assert "Anton" in content
+    assert "Alignment" not in content or ",7," in content  # numpad alignment 7 (top-left) present in the Style line
+    os.remove(ass_path)
+
+
+def test_write_ass_uses_defaults_when_font_value_and_position_are_none():
+    from render import _write_ass
+    from schemas import CaptionWord
+
+    words = [CaptionWord(word="hi", start_ms=0, end_ms=500)]
+    ass_path = "/tmp/test_write_ass_defaults.ass"
+    _write_ass(words, "default", ass_path, font_value=None, position=None)
+    with open(ass_path) as f:
+        content = f.read()
+    assert "DejaVu Sans" in content
+    assert ",2,40,40,120," in content  # today's exact default Alignment/margins
+    os.remove(ass_path)
