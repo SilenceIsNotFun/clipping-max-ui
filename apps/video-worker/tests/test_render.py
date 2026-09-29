@@ -364,3 +364,16 @@ def test_render_single_segment_passes_title_rect_to_render_title_png():
     call_args = mock_render_title.call_args
     assert call_args[0][0] == "Hello"
     assert call_args[0][2] == segment.title_rect
+
+
+def test_write_ass_still_uses_named_presets_via_resolve_caption_style():
+    from render import _write_ass
+    from schemas import CaptionWord
+
+    words = [CaptionWord(word="hi", start_ms=0, end_ms=500)]
+    ass_path = "/tmp/test_write_ass_preset.ass"
+    _write_ass(words, "energetic", ass_path)
+    with open(ass_path) as f:
+        content = f.read()
+    assert "&H000080FF" in content  # energetic preset's highlight color
+    os.remove(ass_path)

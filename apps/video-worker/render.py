@@ -1,6 +1,7 @@
 import os
 
 from alignment import align_words
+from color_resolution import resolve_caption_style
 from ffmpeg_utils import probe_duration, run_ffmpeg
 from layout import build_segment_filter
 from schemas import CaptionWord, CropRect, RenderJobInput, RenderResult, SegmentInput
@@ -33,7 +34,7 @@ def _write_ass(caption_words: list[CaptionWord], style_name: str, ass_path: str)
     a Dialogue event is emitted showing the FULL line, with that word wrapped in
     the highlight color override tag and the rest of the line left at the
     style's default PrimaryColour (no override tag needed there)."""
-    style = CAPTION_STYLES.get(style_name, CAPTION_STYLES["default"])
+    style = resolve_caption_style(style_name)
 
     header = (
         "[Script Info]\n"
