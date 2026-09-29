@@ -9,6 +9,7 @@ resolution -- returns None (title) or the current default family name
 
 import hashlib
 import os
+import shutil
 import urllib.request
 
 from fontTools.ttLib import TTFont
@@ -47,6 +48,24 @@ def _download_and_cache(url: str) -> str | None:
         return None
 
 
+def _ensure_in_font_cache(path: str) -> str:
+    """Copies a resolved local font file into FONT_CACHE_DIR if it isn't
+    already there, so libass's single fontsdir=FONT_CACHE_DIR (set on the
+    ffmpeg subtitles filter) can find it regardless of which of the 3
+    resolution forms produced it -- an uploaded font's original path (on the
+    video-assets volume) is otherwise invisible to libass at render time.
+    """
+    if os.path.dirname(os.path.abspath(path)) == os.path.abspath(FONT_CACHE_DIR):
+        return path
+    os.makedirs(FONT_CACHE_DIR, exist_ok=True)
+    digest = hashlib.sha256(os.path.abspath(path).encode()).hexdigest()
+    ext = os.path.splitext(path)[1] or ".ttf"
+    dest = os.path.join(FONT_CACHE_DIR, f"{digest}{ext}")
+    if not os.path.isfile(dest):
+        shutil.copy2(path, dest)
+    return dest
+
+
 def resolve_title_font(value: str | None) -> str | None:
     if not value:
         return None
@@ -69,7 +88,7 @@ def resolve_caption_font(value: str | None) -> str:
     if value.startswith("http://") or value.startswith("https://"):
         resolved_path = _download_and_cache(value)
     elif os.path.isfile(value):
-        resolved_path = value
+        resolved_path = _ensure_in_font_cache(value)
 
     if resolved_path is None:
         return DEFAULT_CAPTION_FONT_FAMILY

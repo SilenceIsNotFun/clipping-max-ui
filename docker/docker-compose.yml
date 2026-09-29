@@ -49,6 +49,7 @@ services:
       - video-assets:/app/video-assets
       - piper-voices:/app/voices
       - whisper-cache:/root/.cache/huggingface
+      - font-cache:/app/font-cache
     deploy:
       resources:
         reservations:
@@ -90,3 +91,4 @@ volumes:
   video-assets:
   piper-voices:
   whisper-cache:
+  font-cache:

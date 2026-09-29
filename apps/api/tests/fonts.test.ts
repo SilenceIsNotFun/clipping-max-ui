@@ -61,4 +61,16 @@ describe("font upload route", () => {
     const res = await request(app).post(`/api/campaigns/${campaignId}/fonts`);
     expect(res.status).toBe(400);
   });
+
+  it("returns 404 for a nonexistent campaign", async () => {
+    const app = createApp();
+    const fontPath = path.join(dataDir, "MyFont.ttf");
+    fs.writeFileSync(fontPath, Buffer.from("fake-ttf-bytes"));
+
+    const res = await request(app)
+      .post(`/api/campaigns/does-not-exist/fonts`)
+      .attach("file", fontPath);
+
+    expect(res.status).toBe(404);
+  });
 });

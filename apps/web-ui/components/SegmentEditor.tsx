@@ -498,14 +498,14 @@ export function SegmentEditor({
         </div>
 
         <input
-          list="caption-style-presets"
+          list={`caption-style-presets-${campaignId}-${draft.order_index}`}
           type="text"
           placeholder="Caption style (e.g. energetic or #FFD700)"
           value={draft.caption_style ?? "default"}
           onChange={(e) => onChange({ ...draft, caption_style: e.target.value })}
           className={selectClass}
         />
-        <datalist id="caption-style-presets">
+        <datalist id={`caption-style-presets-${campaignId}-${draft.order_index}`}>
           {CAPTION_STYLES.map((style) => (
             <option key={style} value={style} />
           ))}
@@ -529,14 +529,14 @@ export function SegmentEditor({
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <input
-                list="title-font-presets"
+                list={`title-font-presets-${campaignId}-${draft.order_index}`}
                 type="text"
                 placeholder="Font (e.g. anton) or paste a link"
                 value={draft.title_font ?? ""}
                 onChange={(e) => onChange({ ...draft, title_font: e.target.value })}
                 className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
               />
-              <datalist id="title-font-presets">
+              <datalist id={`title-font-presets-${campaignId}-${draft.order_index}`}>
                 {FONT_PRESETS.map((f) => (
                   <option key={f} value={f} />
                 ))}
@@ -544,14 +544,14 @@ export function SegmentEditor({
               <input type="file" accept=".ttf,.otf" onChange={(e) => handleFontUpload(e, "title")} className="text-xs" />
             </div>
             <input
-              list="title-color-presets"
+              list={`title-color-presets-${campaignId}-${draft.order_index}`}
               type="text"
               placeholder="Color (e.g. yellow or #FFD700)"
               value={draft.title_color ?? ""}
               onChange={(e) => onChange({ ...draft, title_color: e.target.value })}
               className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
             />
-            <datalist id="title-color-presets">
+            <datalist id={`title-color-presets-${campaignId}-${draft.order_index}`}>
               {TITLE_COLOR_PRESETS.map((c) => (
                 <option key={c} value={c} />
               ))}
@@ -562,17 +562,22 @@ export function SegmentEditor({
 
       <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-600">Caption styling</p>
+        {draft.order_index > 0 && (
+          <p className="mt-1 text-xs text-slate-400">
+            Only the first segment's caption styling is used for the whole render.
+          </p>
+        )}
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
             <input
-              list="caption-font-presets"
+              list={`caption-font-presets-${campaignId}-${draft.order_index}`}
               type="text"
               placeholder="Font (e.g. montserrat) or paste a link"
               value={draft.caption_font ?? ""}
               onChange={(e) => onChange({ ...draft, caption_font: e.target.value })}
               className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
             />
-            <datalist id="caption-font-presets">
+            <datalist id={`caption-font-presets-${campaignId}-${draft.order_index}`}>
               {FONT_PRESETS.map((f) => (
                 <option key={f} value={f} />
               ))}

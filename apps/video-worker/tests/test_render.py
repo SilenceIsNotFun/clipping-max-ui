@@ -251,7 +251,8 @@ def test_write_ass_groups_words_into_multi_word_karaoke_lines(tmp_path):
     line (multiple words), with only the currently-active word wrapped in the
     highlight color tag -- not the word shown alone (which was indistinguishable
     from the old SRT captions it replaced)."""
-    from render import CAPTION_STYLES, _write_ass
+    from color_resolution import resolve_caption_style
+    from render import _write_ass
     from schemas import CaptionWord
 
     words = [
@@ -272,7 +273,7 @@ def test_write_ass_groups_words_into_multi_word_karaoke_lines(tmp_path):
         for w in ("hello", "there", "friend", "today"):
             assert w in line, f"expected '{w}' present in every line's rendered text: {line}"
 
-    style = CAPTION_STYLES["default"]
+    style = resolve_caption_style("default")
     highlight_tag = f"{{\\c{style['highlight']}}}"
     primary_reset_tag = f"{{\\c{style['primary']}}}"
 

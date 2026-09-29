@@ -115,3 +115,30 @@ def test_resolve_caption_font_falls_back_to_default_when_family_name_extraction_
         "font_resolution.TTFont", side_effect=Exception("bad font data")
     ):
         assert resolve_caption_font(fake_font_path) == "DejaVu Sans"
+
+
+def test_resolve_caption_font_copies_an_outside_local_font_into_font_cache_dir(tmp_path, monkeypatch):
+    from font_resolution import resolve_caption_font
+
+    cache_dir = tmp_path / "font-cache"
+    monkeypatch.setattr("font_resolution.FONT_CACHE_DIR", str(cache_dir))
+
+    upload_dir = tmp_path / "video-assets" / "fonts"
+    upload_dir.mkdir(parents=True)
+    uploaded_font_path = str(upload_dir / "custom.ttf")
+    with open(uploaded_font_path, "wb") as f:
+        f.write(b"fake-font-bytes")
+
+    mock_ttfont = MagicMock()
+    mock_ttfont.__getitem__.return_value.getDebugName.return_value = "Uploaded Family"
+
+    with patch("font_resolution.TTFont", return_value=mock_ttfont):
+        family = resolve_caption_font(uploaded_font_path)
+
+    assert family == "Uploaded Family"
+    # The whole point of this fix: libass's fontsdir=FONT_CACHE_DIR must
+    # actually be able to find this font file, not just the original
+    # uploaded path -- so a copy must land inside FONT_CACHE_DIR.
+    cached_files = list(cache_dir.iterdir()) if cache_dir.exists() else []
+    assert len(cached_files) == 1
+    assert cached_files[0].read_bytes() == b"fake-font-bytes"
