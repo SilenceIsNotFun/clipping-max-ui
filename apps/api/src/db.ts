@@ -94,7 +94,11 @@ CREATE TABLE IF NOT EXISTS segment_assignments (
   crop_facecam_rect TEXT,
   title_text TEXT,
   caption_style TEXT,
-  title_rect TEXT
+  title_rect TEXT,
+  title_font TEXT,
+  title_color TEXT,
+  caption_font TEXT,
+  caption_rect TEXT
 );
 
 CREATE TABLE IF NOT EXISTS render_jobs (
@@ -168,6 +172,18 @@ export function getDb(dbPath: string): Database.Database {
   }
   if (!segmentAssignmentColumns.some((c) => c.name === "title_rect")) {
     db.exec("ALTER TABLE segment_assignments ADD COLUMN title_rect TEXT");
+  }
+  if (!segmentAssignmentColumns.some((c) => c.name === "title_font")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN title_font TEXT");
+  }
+  if (!segmentAssignmentColumns.some((c) => c.name === "title_color")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN title_color TEXT");
+  }
+  if (!segmentAssignmentColumns.some((c) => c.name === "caption_font")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN caption_font TEXT");
+  }
+  if (!segmentAssignmentColumns.some((c) => c.name === "caption_rect")) {
+    db.exec("ALTER TABLE segment_assignments ADD COLUMN caption_rect TEXT");
   }
 
   // Migration path for DBs created before watermark_asset_id and watermark_rect were added to render_jobs.

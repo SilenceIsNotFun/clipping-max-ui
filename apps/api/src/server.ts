@@ -5,6 +5,7 @@ import { createAssetsRouter } from "./routes/assets";
 import { createInternalRouter } from "./routes/internal";
 import { createSegmentsRouter } from "./routes/segments";
 import { createRenderRouter } from "./routes/render";
+import { createFontsRouter } from "./routes/fonts";
 
 export function createApp() {
   const app = express();
@@ -28,6 +29,7 @@ export function createApp() {
   app.use("/api/campaigns/:id/assets", createAssetsRouter());
   app.use("/api/campaigns/:id/segments", createSegmentsRouter());
   app.use("/api/campaigns/:id/render", createRenderRouter());
+  app.use("/api/campaigns/:id/fonts", createFontsRouter());
   app.use("/api/internal", createInternalRouter());
 
   // Error-handling middleware must be registered last, with 4 args, so

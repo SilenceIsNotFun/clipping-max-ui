@@ -260,6 +260,39 @@ describe("getDb", () => {
     reopened.close();
   });
 
+  it("adds title_font, title_color, caption_font, caption_rect to segment_assignments on an existing DB", () => {
+    resetDbCacheForTests();
+    const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-styling-db-")), "app.db");
+    const oldDb = new Database(oldDbPath);
+    oldDb.exec(`
+      CREATE TABLE segment_assignments (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL,
+        segment_key TEXT NOT NULL,
+        video_asset_id TEXT NOT NULL,
+        secondary_video_asset_id TEXT,
+        trim_start REAL NOT NULL,
+        trim_end REAL NOT NULL,
+        order_index INTEGER NOT NULL,
+        layout_template TEXT NOT NULL,
+        crop_gameplay_rect TEXT,
+        crop_facecam_rect TEXT,
+        title_text TEXT,
+        caption_style TEXT,
+        title_rect TEXT
+      );
+    `);
+    oldDb.close();
+
+    const reopened = getDb(oldDbPath);
+    const columns = reopened.prepare("PRAGMA table_info(segment_assignments)").all().map((row: any) => row.name);
+    expect(columns).toContain("title_font");
+    expect(columns).toContain("title_color");
+    expect(columns).toContain("caption_font");
+    expect(columns).toContain("caption_rect");
+    reopened.close();
+  });
+
   it("creates the cut_jobs table, migrated on an existing DB", () => {
     resetDbCacheForTests();
     const oldDbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "old-cutjobs-db-")), "app.db");
