@@ -148,6 +148,10 @@ export interface SegmentDraft {
   title_text?: string;
   title_rect?: CropRect;
   caption_style?: string;
+  title_font?: string;
+  title_color?: string;
+  caption_font?: string;
+  caption_rect?: CropRect;
 }
 
 export async function saveSegments(campaignId: string, segments: SegmentDraft[]): Promise<unknown> {
@@ -159,6 +163,20 @@ export async function saveSegments(campaignId: string, segments: SegmentDraft[])
   if (!res.ok) {
     const body = await res.json();
     throw new Error(JSON.stringify(body));
+  }
+  return res.json();
+}
+
+export async function uploadFont(campaignId: string, file: File): Promise<{ path: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/fonts`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `font upload failed with status ${res.status}`);
   }
   return res.json();
 }
