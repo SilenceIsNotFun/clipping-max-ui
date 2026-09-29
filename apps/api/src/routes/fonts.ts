@@ -19,6 +19,7 @@ export function createFontsRouter(): Router {
     const campaignId = req.params.id;
     const campaign = db.prepare("SELECT id FROM campaigns WHERE id = ?").get(campaignId);
     if (!campaign) {
+      if (req.file) fs.unlinkSync(req.file.path);
       res.status(404).json({ error: "campaign not found" });
       return;
     }
