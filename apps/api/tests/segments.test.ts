@@ -199,4 +199,34 @@ describe("segment assignment route", () => {
       .get(campaignId, "hook") as any;
     expect(JSON.parse(row.title_rect)).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
   });
+
+  it("persists title_font, title_color, caption_font, and caption_rect when provided", async () => {
+    const app = createApp();
+    const res = await request(app)
+      .put(`/api/campaigns/${campaignId}/segments`)
+      .send({
+        segments: [
+          {
+            segment_key: "hook",
+            video_asset_id: assetId,
+            trim_start: 0,
+            trim_end: 5,
+            order_index: 0,
+            layout_template: "standard",
+            title_font: "anton",
+            title_color: "#FFD700",
+            caption_font: "montserrat",
+            caption_rect: { x: 0.1, y: 0.05, width: 0.8, height: 0.1 },
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    const db = getDb(dbPath);
+    const row = db.prepare("SELECT * FROM segment_assignments WHERE campaign_id = ?").get(campaignId) as any;
+    expect(row.title_font).toBe("anton");
+    expect(row.title_color).toBe("#FFD700");
+    expect(row.caption_font).toBe("montserrat");
+    expect(JSON.parse(row.caption_rect)).toEqual({ x: 0.1, y: 0.05, width: 0.8, height: 0.1 });
+  });
 });

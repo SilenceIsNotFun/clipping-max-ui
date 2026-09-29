@@ -227,6 +227,24 @@ describe("render routes", () => {
     expect(segmentPayloads[0].title_rect).toEqual({ x: 0.1, y: 0.8, width: 0.8, height: 0.1 });
   });
 
+  it("includes title_font, title_color, caption_font, and caption_rect in the segment payload", async () => {
+    const { submitRender } = require("../src/services/videoWorkerClient");
+    const db = getDb(dbPath);
+    db.prepare(
+      "UPDATE segment_assignments SET title_font = ?, title_color = ?, caption_font = ?, caption_rect = ? WHERE campaign_id = ?"
+    ).run("anton", "#FFD700", "montserrat", JSON.stringify({ x: 0.1, y: 0.05, width: 0.8, height: 0.1 }), campaignId);
+
+    const app = createApp();
+    await request(app).post(`/api/campaigns/${campaignId}/render`).send({ tts_voice: "id_ID-news_tts-medium" });
+
+    const callArgs = (submitRender as jest.Mock).mock.calls[0];
+    const segmentPayloads = callArgs[2];
+    expect(segmentPayloads[0].title_font).toBe("anton");
+    expect(segmentPayloads[0].title_color).toBe("#FFD700");
+    expect(segmentPayloads[0].caption_font).toBe("montserrat");
+    expect(segmentPayloads[0].caption_rect).toEqual({ x: 0.1, y: 0.05, width: 0.8, height: 0.1 });
+  });
+
   it("finalizes a ready render job", async () => {
     const app = createApp();
     const db = getDb(dbPath);

@@ -86,6 +86,10 @@ export function createRenderRouter(): Router {
       title_text: s.title_text ?? undefined,
       title_rect: s.title_rect ? JSON.parse(s.title_rect) : undefined,
       caption_style: s.caption_style ?? undefined,
+      title_font: s.title_font ?? undefined,
+      title_color: s.title_color ?? undefined,
+      caption_font: s.caption_font ?? undefined,
+      caption_rect: s.caption_rect ? JSON.parse(s.caption_rect) : undefined,
     }));
 
     const musicPath = musicAssetId ? assetPathById.get(musicAssetId) ?? null : null;

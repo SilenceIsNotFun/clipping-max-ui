@@ -11,6 +11,10 @@ export interface RenderSegmentPayload {
   title_text?: string;
   title_rect?: Record<string, number>;
   caption_style?: string;
+  title_font?: string;
+  title_color?: string;
+  caption_font?: string;
+  caption_rect?: Record<string, number>;
 }
 
 export async function analyzeAsset(
