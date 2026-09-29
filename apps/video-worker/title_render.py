@@ -12,12 +12,15 @@ STROKE_WIDTH = 5
 SHADOW_OFFSET = 4
 
 
-def _load_font() -> ImageFont.FreeTypeFont:
+def _load_font(font_path: Optional[str] = None) -> ImageFont.FreeTypeFont:
     candidates = [
+        font_path,
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     ]
     for path in candidates:
+        if not path:
+            continue
         try:
             return ImageFont.truetype(path, FONT_SIZE)
         except OSError:
@@ -25,7 +28,13 @@ def _load_font() -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def render_title_png(title_text: str, output_path: str, rect: Optional[CropRect] = None) -> None:
+def render_title_png(
+    title_text: str,
+    output_path: str,
+    rect: Optional[CropRect] = None,
+    font_path: Optional[str] = None,
+    color: Optional[tuple[int, int, int]] = None,
+) -> None:
     """Renders title_text onto a transparent 1080x1920 PNG canvas: white fill,
     black stroke, drop shadow. Unlike ffmpeg's drawtext filter, this has no
     filter-graph escaping concerns -- apostrophes, colons, percent signs,
@@ -37,7 +46,8 @@ def render_title_png(title_text: str, output_path: str, rect: Optional[CropRect]
     position. rect.height is unused (title text is single-line)."""
     img = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    font = _load_font()
+    font = _load_font(font_path)
+    fill_color = (color or (255, 255, 255)) + (255,)
 
     bbox = draw.textbbox((0, 0), title_text, font=font, stroke_width=STROKE_WIDTH)
     text_w = bbox[2] - bbox[0]
@@ -63,7 +73,7 @@ def render_title_png(title_text: str, output_path: str, rect: Optional[CropRect]
         (x, y),
         title_text,
         font=font,
-        fill=(255, 255, 255, 255),
+        fill=fill_color,
         stroke_width=STROKE_WIDTH,
         stroke_fill=(0, 0, 0, 255),
     )

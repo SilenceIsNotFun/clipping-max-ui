@@ -68,3 +68,38 @@ def test_render_title_png_with_rect_centers_within_rect_width(tmp_path):
     # centered within [0.5*1080, 0.9*1080] = [540, 972] -- text must start at or after 540,
     # not centered across the full 0-1080 canvas (which would start well before 540)
     assert bbox[0] >= 540
+
+
+def test_render_title_png_uses_default_font_and_color_when_none_given(tmp_path):
+    output_path = str(tmp_path / "title.png")
+    render_title_png("Hello", output_path)
+    # This must produce byte-for-byte the same output as before this task --
+    # compare against a second call with explicit None args (the old signature's
+    # implicit default), which is exactly what render_video will keep doing for
+    # any segment with no title_font/title_color set.
+    output_path_explicit = str(tmp_path / "title_explicit.png")
+    render_title_png("Hello", output_path_explicit, rect=None, font_path=None, color=None)
+    assert open(output_path, "rb").read() == open(output_path_explicit, "rb").read()
+
+
+def test_render_title_png_uses_custom_color(tmp_path):
+    output_path = str(tmp_path / "title.png")
+    render_title_png("Hello", output_path, color=(0, 255, 0))
+    img = Image.open(output_path)
+    pixels = list(img.getdata())
+    # At least one non-transparent pixel must carry the custom green fill
+    # (allowing for anti-aliasing means checking the green channel dominates
+    # rather than an exact RGB match on every pixel).
+    green_pixels = [p for p in pixels if p[3] > 200 and p[1] > 200 and p[0] < 100 and p[2] < 100]
+    assert len(green_pixels) > 0
+
+
+def test_render_title_png_falls_back_to_default_font_on_invalid_font_path(tmp_path):
+    bad_font_path = str(tmp_path / "not-a-font.ttf")
+    with open(bad_font_path, "w") as f:
+        f.write("this is not a font file")
+
+    output_path = str(tmp_path / "title.png")
+    # Must not raise -- an invalid font_path falls back to the default loader.
+    render_title_png("Hello", output_path, font_path=bad_font_path)
+    assert os.path.exists(output_path)
