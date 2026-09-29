@@ -17,6 +17,7 @@ import {
   listAssets,
   listMoments,
   triggerCut,
+  uploadFont,
 } from "../lib/apiClient";
 import { TimelineScrubber } from "./TimelineScrubber";
 import { CropCanvas } from "./CropCanvas";
@@ -35,6 +36,8 @@ const TEMPLATES: LayoutTemplate[] = [
 ];
 
 const CAPTION_STYLES = ["default", "energetic", "warning"];
+const FONT_PRESETS = ["dejavu", "anton", "montserrat"];
+const TITLE_COLOR_PRESETS = ["white", "yellow", "black", "red"];
 
 export function SegmentEditor({
   campaignId,
@@ -67,7 +70,26 @@ export function SegmentEditor({
   const [cutting, setCutting] = useState(false);
   const [cutError, setCutError] = useState<string | null>(null);
   const [appliedHookReasoning, setAppliedHookReasoning] = useState<string | null>(null);
+  const [fontUploadError, setFontUploadError] = useState<string | null>(null);
   const cutPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  async function handleFontUpload(e: React.ChangeEvent<HTMLInputElement>, applyTo: "title" | "caption") {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFontUploadError(null);
+    try {
+      const result = await uploadFont(campaignId, file);
+      if (applyTo === "title") {
+        onChange({ ...draft, title_font: result.path });
+      } else {
+        onChange({ ...draft, caption_font: result.path });
+      }
+    } catch (err) {
+      setFontUploadError((err as Error).message);
+    } finally {
+      e.target.value = "";
+    }
+  }
 
   function stopCutPolling() {
     if (cutPollIntervalRef.current !== null) {
@@ -475,17 +497,19 @@ export function SegmentEditor({
           )}
         </div>
 
-        <select
+        <input
+          list="caption-style-presets"
+          type="text"
+          placeholder="Caption style (e.g. energetic or #FFD700)"
           value={draft.caption_style ?? "default"}
           onChange={(e) => onChange({ ...draft, caption_style: e.target.value })}
           className={selectClass}
-        >
+        />
+        <datalist id="caption-style-presets">
           {CAPTION_STYLES.map((style) => (
-            <option key={style} value={style}>
-              {style}
-            </option>
+            <option key={style} value={style} />
           ))}
-        </select>
+        </datalist>
       </div>
 
       {draft.title_text && asset && (
@@ -498,6 +522,81 @@ export function SegmentEditor({
           />
         </div>
       )}
+
+      {draft.title_text && (
+        <div className="rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-600">Title styling</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <input
+                list="title-font-presets"
+                type="text"
+                placeholder="Font (e.g. anton) or paste a link"
+                value={draft.title_font ?? ""}
+                onChange={(e) => onChange({ ...draft, title_font: e.target.value })}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+              />
+              <datalist id="title-font-presets">
+                {FONT_PRESETS.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+              </datalist>
+              <input type="file" accept=".ttf,.otf" onChange={(e) => handleFontUpload(e, "title")} className="text-xs" />
+            </div>
+            <input
+              list="title-color-presets"
+              type="text"
+              placeholder="Color (e.g. yellow or #FFD700)"
+              value={draft.title_color ?? ""}
+              onChange={(e) => onChange({ ...draft, title_color: e.target.value })}
+              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+            />
+            <datalist id="title-color-presets">
+              {TITLE_COLOR_PRESETS.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-600">Caption styling</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <input
+              list="caption-font-presets"
+              type="text"
+              placeholder="Font (e.g. montserrat) or paste a link"
+              value={draft.caption_font ?? ""}
+              onChange={(e) => onChange({ ...draft, caption_font: e.target.value })}
+              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+            />
+            <datalist id="caption-font-presets">
+              {FONT_PRESETS.map((f) => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+            <input type="file" accept=".ttf,.otf" onChange={(e) => handleFontUpload(e, "caption")} className="text-xs" />
+          </div>
+        </div>
+        {fontUploadError && (
+          <p role="alert" className="mt-2 text-xs font-medium text-rose-500">
+            {fontUploadError}
+          </p>
+        )}
+        {asset && (
+          <div className="mt-2 rounded-xl bg-white p-3">
+            <p className="mb-2 text-xs text-slate-400">Drag a box for where captions should appear.</p>
+            <CropCanvas
+              imageSrc={mediaUrl(asset.file_path)}
+              label="Caption placement"
+              initialRect={draft.caption_rect ?? null}
+              onChange={(rect: CropRect) => onChange({ ...draft, caption_rect: rect })}
+            />
+          </div>
+        )}
+      </div>
     </fieldset>
   );
 }
